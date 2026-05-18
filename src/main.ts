@@ -12,9 +12,18 @@ async function bootstrap() {
   const apiPrefix = 'api/v1';
 
   app.setGlobalPrefix(apiPrefix);
+  const allowedOrigins = (
+    configService.get<string>('CORS_ORIGINS') ?? ''
+  )
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
   app.enableCors({
-    origin: true,
+    origin: allowedOrigins.length ? allowedOrigins : true,
     credentials: true,
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
   });
   app.useGlobalPipes(
     new ValidationPipe({
