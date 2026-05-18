@@ -1,37 +1,11 @@
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: duky-store-postgres
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: duky-store-api
     restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-duky_store}
-      POSTGRES_USER: ${POSTGRES_USER:-duky}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-duky_password}
+    env_file:
+      - .env
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
-    volumes:
-      - duky_postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-duky} -d ${POSTGRES_DB:-duky_store}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  redis:
-    image: redis:7-alpine
-    container_name: duky-store-redis
-    restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
-    volumes:
-      - duky_redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-volumes:
-  duky_postgres_data:
-  duky_redis_data:
+      - "${PORT:-4000}:4000"
