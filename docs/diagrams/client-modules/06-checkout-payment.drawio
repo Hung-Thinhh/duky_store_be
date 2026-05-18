@@ -1,0 +1,14 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="Checkout Payment">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="title" value="CHECKOUT + PAYMENT MODULE&#xa;&#xa;Scope: dat mua, review don, COD/bank transfer, tao order.&#xa;&#xa;CHECKOUT FLOW&#xa;1. User vao /checkout&#xa;2. FE call GET /api/v1/cart&#xa;3. If cart empty -> redirect/cart empty state&#xa;4. Render customer form + order review&#xa;5. User enters name, phone, email, address, note&#xa;6. User selects payment method: cod or bank_transfer&#xa;7. FE validates required fields&#xa;8. FE submits POST /api/v1/checkout&#xa;9. BE validates cart, stock, price, shipping, payment&#xa;10. BE creates order and returns orderCode&#xa;11. FE redirects to success page&#xa;&#xa;PAYMENT SUB-FLOW: COD&#xa;1. User chooses cod&#xa;2. Checkout request paymentMethod = cod&#xa;3. BE creates order with unpaid/pending status according to business rule&#xa;4. Success page shows COD instruction&#xa;&#xa;PAYMENT SUB-FLOW: BANK TRANSFER&#xa;1. User chooses bank_transfer&#xa;2. Checkout request paymentMethod = bank_transfer&#xa;3. BE creates order&#xa;4. Success page shows bank account, amount, transfer content/orderCode&#xa;&#xa;API USED&#xa;- GET /api/v1/cart&#xa;- POST /api/v1/checkout&#xa;- GET /api/v1/settings/public optional for bank/payment info if not in checkout response&#xa;&#xa;REQUEST FIELDS&#xa;- fullName, phone, email optional/required by decision&#xa;- address, note&#xa;- paymentMethod: cod | bank_transfer&#xa;&#xa;IMPORTANT RULES&#xa;- FE does not send total as source of truth&#xa;- BE recalculates final total&#xa;- BE validates stock and variant again&#xa;- Checkout response must return orderCode&#xa;&#xa;ERROR FLOW&#xa;- Validation error -> map DT.fields to form&#xa;- Cart empty -> show cart empty message&#xa;- Out of stock -> show product/item error and refresh cart&#xa;- Payment method invalid -> show error&#xa;&#xa;DONE WHEN&#xa;- COD order can be placed&#xa;- Bank transfer order can be placed&#xa;- Success page receives orderCode&#xa;- Error cases display clear messages" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefce8;strokeColor=#a16207;fontSize=16;align=left;verticalAlign=top;spacing=24;" vertex="1" parent="1">
+          <mxGeometry x="80" y="60" width="1440" height="860" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
+

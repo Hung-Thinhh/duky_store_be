@@ -1,0 +1,14 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="SEO Sitemap">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="title" value="SEO + SITEMAP MODULE&#xa;&#xa;Scope: SEO rendering cho homepage, product list/detail, blog/static, sitemap/robots check. MVP Plus.&#xa;&#xa;SEO FLOW&#xa;1. Page receives route params/query&#xa;2. FE fetches data needed for meta&#xa;3. Generate meta title, description, canonical, OG image&#xa;4. Product detail optionally generates product schema basic&#xa;5. Render page content&#xa;&#xa;PRIORITY&#xa;1. Product detail SEO&#xa;2. Homepage SEO&#xa;3. Product/category listing SEO&#xa;4. Blog detail SEO&#xa;5. Static pages SEO&#xa;&#xa;API USED&#xa;- GET /api/v1/products/:slug&#xa;- GET /api/v1/homepage&#xa;- GET /api/v1/blog/:slug&#xa;- GET /api/v1/sitemap.xml&#xa;- GET /api/v1/robots.txt&#xa;&#xa;SEO DATA NEEDED&#xa;- metaTitle&#xa;- metaDescription&#xa;- canonicalUrl&#xa;- ogImage&#xa;- product name/price/image/status for schema&#xa;&#xa;SITEMAP/ROBOTS FLOW&#xa;1. Deploy preview available&#xa;2. Check /sitemap.xml from backend or frontend proxy decision&#xa;3. Check /robots.txt does not block important pages&#xa;4. Confirm final domain/canonical later before production&#xa;&#xa;DONE WHEN&#xa;- Product detail has useful meta/OG&#xa;- Homepage has meta/OG&#xa;- Sitemap and robots not blocked by deploy&#xa;- SEO does not delay purchase MVP" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f5f9;strokeColor=#475569;fontSize=16;align=left;verticalAlign=top;spacing=24;" vertex="1" parent="1">
+          <mxGeometry x="80" y="60" width="1440" height="860" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
+

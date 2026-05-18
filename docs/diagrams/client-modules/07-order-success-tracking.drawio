@@ -1,0 +1,14 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="Order Success Tracking">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="title" value="ORDER SUCCESS + TRACKING MODULE&#xa;&#xa;Scope: trang dat hang thanh cong va tra cuu don bang ma don.&#xa;&#xa;ORDER SUCCESS FLOW&#xa;1. Checkout success returns orderCode&#xa;2. FE navigates to success route with orderCode or stores orderCode temporarily&#xa;3. FE optionally calls GET /api/v1/orders/:code&#xa;4. Render order code, total, payment instruction, customer info, CTA&#xa;5. User can go home, continue shopping, or view tracking&#xa;&#xa;TRACKING FLOW&#xa;1. User opens /orders/:code&#xa;2. FE calls GET /api/v1/orders/:code&#xa;3. BE returns order detail and status&#xa;4. FE renders status timeline/list&#xa;5. User sees items, totals, shipping/customer info if allowed&#xa;&#xa;API USED&#xa;- POST /api/v1/checkout response&#xa;- GET /api/v1/orders/:code&#xa;&#xa;ORDER DATA NEEDED&#xa;- orderCode&#xa;- status&#xa;- paymentMethod, paymentStatus&#xa;- total, subtotal, shippingFee&#xa;- bank transfer info if needed&#xa;- items: product name, variant, quantity, price, subtotal&#xa;- customer shipping info&#xa;&#xa;STATUS DISPLAY SUGGESTION&#xa;- pending -> Da tiep nhan&#xa;- confirmed -> Da xac nhan&#xa;- processing -> Dang xu ly&#xa;- shipping -> Dang giao&#xa;- completed -> Hoan thanh&#xa;- cancelled -> Da huy&#xa;&#xa;ERROR FLOW&#xa;- Missing orderCode after checkout -> show fallback CTA to contact shop/order lookup&#xa;- Wrong order code -> not found state&#xa;- API error -> retry and hotline CTA&#xa;&#xa;DONE WHEN&#xa;- Success page shows useful confirmation&#xa;- Tracking page works by direct URL&#xa;- Wrong code has clear not-found UI" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ecfeff;strokeColor=#0e7490;fontSize=16;align=left;verticalAlign=top;spacing=24;" vertex="1" parent="1">
+          <mxGeometry x="80" y="60" width="1440" height="860" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
+

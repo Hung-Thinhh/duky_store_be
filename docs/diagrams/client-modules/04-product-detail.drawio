@@ -1,0 +1,14 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="Product Detail">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="title" value="PRODUCT DETAIL MODULE&#xa;&#xa;Scope: detail page, gallery, variant selection, add to cart, buy now.&#xa;&#xa;DETAIL FLOW&#xa;1. User vao /products/:slug&#xa;2. FE call GET /api/v1/products/:slug&#xa;3. Render gallery, name, price, sale price, SKU, description, category/tag&#xa;4. User chooses variant if required&#xa;5. User chooses quantity&#xa;6. User clicks Add to cart or Buy now&#xa;&#xa;GALLERY FLOW&#xa;1. Use product.images&#xa;2. Primary image selected first&#xa;3. User selects thumbnail&#xa;4. Main image updates&#xa;5. Missing image -> fallback no-image&#xa;&#xa;VARIANT FLOW&#xa;1. If product has variants -> user must choose valid size/color&#xa;2. FE checks selected variant exists and stock > 0&#xa;3. If no variants -> simple product add cart&#xa;&#xa;ADD CART FLOW&#xa;1. Validate quantity > 0&#xa;2. Validate required variant selected&#xa;3. POST /api/v1/cart/items&#xa;4. Refresh cart badge/cart summary&#xa;5. Show success toast/message&#xa;&#xa;BUY NOW FLOW&#xa;1. Same validation as add cart&#xa;2. POST /api/v1/cart/items&#xa;3. Redirect /checkout or /cart based on decision&#xa;&#xa;API USED&#xa;- GET /api/v1/products/:slug&#xa;- POST /api/v1/cart/items&#xa;- GET /api/v1/cart optional for badge refresh&#xa;&#xa;ERROR FLOW&#xa;- Product not found -> 404 state&#xa;- Variant invalid -> inline error&#xa;- Out of stock -> disable add/buy or show backend error&#xa;- Add cart failed -> show EM message&#xa;&#xa;DONE WHEN&#xa;- Detail full data renders&#xa;- Gallery works&#xa;- Variant/simple product both supported by agreed MVP rule&#xa;- Add cart and buy now work" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff7ed;strokeColor=#c2410c;fontSize=16;align=left;verticalAlign=top;spacing=24;" vertex="1" parent="1">
+          <mxGeometry x="80" y="60" width="1440" height="860" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
+

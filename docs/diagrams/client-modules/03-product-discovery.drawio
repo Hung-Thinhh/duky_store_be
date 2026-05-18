@@ -1,0 +1,14 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="Product Discovery">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="title" value="PRODUCT DISCOVERY MODULE&#xa;&#xa;Scope: product listing, category products, search, filter price, sort, pagination.&#xa;&#xa;LISTING FLOW&#xa;1. User vao /products&#xa;2. FE read query params: page, search, minPrice, maxPrice, sort&#xa;3. Call GET /api/v1/products&#xa;4. Render product grid/list&#xa;5. User click product card&#xa;6. Navigate /products/:slug&#xa;&#xa;CATEGORY FLOW&#xa;1. User vao /categories/:slug&#xa;2. FE call categories/products API&#xa;3. Render category title + product list&#xa;4. Pagination keeps category context&#xa;&#xa;SEARCH/FILTER/SORT FLOW&#xa;1. User enters keyword or chooses filter/sort&#xa;2. FE updates URL query&#xa;3. FE refetches product list&#xa;4. Render loading -> data/empty/error&#xa;&#xa;API USED&#xa;- GET /api/v1/products?page=&amp;limit=&#xa;- GET /api/v1/products?search=&#xa;- GET /api/v1/products?minPrice=&amp;maxPrice=&amp;sort=&#xa;- GET /api/v1/categories&#xa;- GET /api/v1/categories/:slug/products&#xa;&#xa;PRODUCT LIST ITEM SCHEMA&#xa;- id, slug, name, price, salePrice&#xa;- image.url, image.alt&#xa;- stockStatus&#xa;- optional category name/slug&#xa;&#xa;STATES&#xa;- Loading: skeleton grid&#xa;- Empty: no products found&#xa;- Error: show message + retry&#xa;- Pagination: page, limit, total, totalPages&#xa;&#xa;DONE WHEN&#xa;- List, category, search, filter, sort all work from URL query&#xa;- Product card routes to detail&#xa;- Mobile grid does not break" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eff6ff;strokeColor=#1d4ed8;fontSize=16;align=left;verticalAlign=top;spacing=24;" vertex="1" parent="1">
+          <mxGeometry x="80" y="60" width="1440" height="860" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
+

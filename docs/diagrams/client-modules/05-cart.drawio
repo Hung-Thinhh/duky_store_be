@@ -1,0 +1,14 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="Cart">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="title" value="CART MODULE&#xa;&#xa;Scope: guest cart, cart page, add/update/delete/clear item, cart badge.&#xa;&#xa;ADD TO CART FLOW&#xa;1. User clicks add cart from product detail&#xa;2. FE sends productId, optional variantId, quantity&#xa;3. BE validates product/variant/stock&#xa;4. BE creates or updates cart item&#xa;5. FE refreshes cart/badge&#xa;&#xa;CART PAGE FLOW&#xa;1. User vao /cart&#xa;2. FE call GET /api/v1/cart&#xa;3. Render item list, quantity, price, subtotal, cart total&#xa;4. User updates quantity or removes item&#xa;5. FE calls patch/delete API&#xa;6. Refresh cart totals&#xa;7. User clicks checkout&#xa;8. Navigate /checkout if cart has items&#xa;&#xa;API USED&#xa;- GET /api/v1/cart&#xa;- POST /api/v1/cart/items&#xa;- PATCH /api/v1/cart/items/:id&#xa;- DELETE /api/v1/cart/items/:id&#xa;- DELETE /api/v1/cart&#xa;&#xa;CART ITEM DATA&#xa;- itemId&#xa;- productId, productSlug, productName&#xa;- variantId, variantName/attributes if any&#xa;- image&#xa;- unitPrice, salePrice/finalPrice&#xa;- quantity&#xa;- subtotal&#xa;&#xa;GUEST CART DECISION NEEDED&#xa;- Cookie/session/header?&#xa;- Cart persistence duration?&#xa;- Same product + same variant merges quantity? recommended: yes&#xa;&#xa;ERROR FLOW&#xa;- Cart empty -> empty state + CTA to products&#xa;- Quantity > stock -> backend error, FE show message&#xa;- Item deleted server-side -> refetch cart&#xa;- Network error -> retry&#xa;&#xa;DONE WHEN&#xa;- Add/update/delete/clear work&#xa;- Cart badge updates&#xa;- Totals come from BE&#xa;- Checkout button disabled/hidden when cart empty" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fdf2f8;strokeColor=#be185d;fontSize=16;align=left;verticalAlign=top;spacing=24;" vertex="1" parent="1">
+          <mxGeometry x="80" y="60" width="1440" height="860" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
+

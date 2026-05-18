@@ -1,0 +1,14 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="Blog">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="title" value="BLOG MODULE&#xa;&#xa;Scope: blog list/detail, content rendering, SEO basic. MVP Plus, lam sau flow mua hang.&#xa;&#xa;BLOG LIST FLOW&#xa;1. User vao /blog&#xa;2. FE call GET /api/v1/blog&#xa;3. Render post cards: image, title, excerpt, publish date&#xa;4. Pagination if available&#xa;5. User clicks post&#xa;6. Navigate /blog/:slug&#xa;&#xa;BLOG DETAIL FLOW&#xa;1. User vao /blog/:slug&#xa;2. FE call GET /api/v1/blog/:slug&#xa;3. Render title, image, content, author/date if available&#xa;4. Apply readable content style&#xa;5. Render SEO meta/OG if Next.js supports&#xa;&#xa;API USED&#xa;- GET /api/v1/blog&#xa;- GET /api/v1/blog/:slug&#xa;&#xa;DATA NEEDED&#xa;- slug, title, excerpt&#xa;- thumbnail/image&#xa;- content/html/markdown according to BE decision&#xa;- publishedAt, author optional&#xa;- SEO title, description, OG image optional&#xa;&#xa;ERROR/FALLBACK FLOW&#xa;- Empty list -> no posts state&#xa;- Detail not found -> 404 state&#xa;- Missing image -> fallback no-image&#xa;- Content source not ready -> render static/hidden blog until ready&#xa;&#xa;DONE WHEN&#xa;- Blog list and detail render cleanly&#xa;- Content readable on mobile&#xa;- SEO basic available if API has data" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f3ff;strokeColor=#7c3aed;fontSize=16;align=left;verticalAlign=top;spacing=24;" vertex="1" parent="1">
+          <mxGeometry x="80" y="60" width="1440" height="860" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
+

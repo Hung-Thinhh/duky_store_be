@@ -1,0 +1,14 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="Client Base Layout">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="title" value="CLIENT BASE + LAYOUT MODULE&#xa;&#xa;Scope: apiClient, shared API types, header, footer, public settings, category menu, cart badge.&#xa;&#xa;MAIN FLOW&#xa;1. App boot&#xa;2. Load env API base URL&#xa;3. Initialize apiClient&#xa;4. Fetch public settings + categories&#xa;5. Render header/footer&#xa;6. Pages use apiClient and shared types&#xa;&#xa;API USED&#xa;- All APIs through apiClient&#xa;- GET /api/v1/settings/public&#xa;- GET /api/v1/categories&#xa;- GET /api/v1/cart for cart badge if needed&#xa;&#xa;API CLIENT RULES&#xa;- Request baseURL comes from env&#xa;- Every response follows EC/EM/DT&#xa;- EC = 0: return DT&#xa;- EC != 0: throw ApiError with EC, EM, DT&#xa;- Handle network error and timeout&#xa;&#xa;SHARED TYPES&#xa;- ApiResponse&lt;T&gt;&#xa;- PaginatedResponse&lt;T&gt;&#xa;- MediaItem&#xa;- ProductListItem&#xa;- CategoryItem&#xa;- CartSummary&#xa;&#xa;HEADER FLOW&#xa;Settings + categories -> logo/menu/search/cart/hotline -> responsive mobile menu&#xa;&#xa;FOOTER FLOW&#xa;Settings -> shop info/hotline/social/policy links -> fallback if missing content&#xa;&#xa;DONE WHEN&#xa;- FE has one shared apiClient&#xa;- Header/footer render on all public pages&#xa;- Cart badge can update after cart changes&#xa;- Mobile layout does not break" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8fafc;strokeColor=#334155;fontSize=16;align=left;verticalAlign=top;spacing=24;" vertex="1" parent="1">
+          <mxGeometry x="80" y="60" width="1440" height="860" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
+

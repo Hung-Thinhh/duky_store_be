@@ -1,0 +1,14 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="Homepage">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="title" value="HOMEPAGE MODULE&#xa;&#xa;Scope: trang chu la entry point cua MVP, can dan user vao flow mua hang nhanh.&#xa;&#xa;MAIN FLOW&#xa;1. User vao /&#xa;2. FE fetch homepage data, products, categories, public settings&#xa;3. Render header&#xa;4. Render hero/banner&#xa;5. Render featured/category/product sections&#xa;6. User click CTA/category/product&#xa;7. Navigate to /products, /categories/:slug, /products/:slug, /cart&#xa;&#xa;API USED&#xa;- GET /api/v1/homepage&#xa;- GET /api/v1/products&#xa;- GET /api/v1/categories&#xa;- GET /api/v1/settings/public&#xa;&#xa;DATA NEEDED&#xa;- Hero/banner title, image, CTA link&#xa;- Featured products or newest products&#xa;- Category list&#xa;- Shop logo, hotline, social, address&#xa;&#xa;EMPTY/FALLBACK FLOW&#xa;- Homepage API empty -> render default sections from products/categories&#xa;- Product API empty -> show empty product section, do not break page&#xa;- Settings missing -> hide optional hotline/social fields&#xa;- Image missing -> use no-image fallback&#xa;&#xa;ERROR FLOW&#xa;- Critical API fail -> show page error with retry&#xa;- Optional API fail -> render page with partial data&#xa;&#xa;DONE WHEN&#xa;- Homepage has header, hero, product/category sections, CTA, footer&#xa;- CTA links route into purchase flow&#xa;- Responsive mobile works&#xa;- No blocked state if optional content missing" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0fdf4;strokeColor=#166534;fontSize=16;align=left;verticalAlign=top;spacing=24;" vertex="1" parent="1">
+          <mxGeometry x="80" y="60" width="1440" height="860" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
+

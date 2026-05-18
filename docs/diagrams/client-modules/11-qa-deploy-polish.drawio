@@ -1,0 +1,14 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="QA Deploy Polish">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="title" value="QA + DEPLOY + POLISH MODULE&#xa;&#xa;Scope: responsive QA, integration QA, deploy preview, UX polish, performance basic, accessibility basic.&#xa;&#xa;RESPONSIVE QA FLOW&#xa;1. Test homepage, list, detail, cart, checkout&#xa;2. Widths: mobile iPhone, tablet, desktop&#xa;3. Check header/menu/cart badge/forms/grid&#xa;4. Log bug with route, steps, screenshot, owner&#xa;&#xa;INTEGRATION QA FLOW&#xa;1. Start from homepage&#xa;2. Open product list/category/search&#xa;3. Open product detail&#xa;4. Add to cart&#xa;5. Update cart&#xa;6. Checkout COD/bank transfer&#xa;7. Success page&#xa;8. Order tracking&#xa;&#xa;DEPLOY FLOW&#xa;1. FE sets API base URL env&#xa;2. Deploy preview build&#xa;3. Smoke test public pages&#xa;4. Run purchase flow on preview&#xa;5. Share link for UAT&#xa;&#xa;UX POLISH FLOW&#xa;- Loading skeletons&#xa;- Toast/message consistency&#xa;- Confirm delete/clear cart&#xa;- Error message readable&#xa;- Empty state with CTA&#xa;&#xa;PERFORMANCE BASIC&#xa;- Lazy load product/homepage images&#xa;- Use image fallback&#xa;- Avoid fetching full detail data on product list&#xa;&#xa;ACCESSIBILITY BASIC&#xa;- Image alt&#xa;- Button labels&#xa;- Form labels&#xa;- Focus state&#xa;- Keyboard usable checkout form&#xa;&#xa;DONE WHEN&#xa;- End-to-end purchase flow passes on preview&#xa;- No P0 responsive blocker&#xa;- All blocker/high bugs have owner&#xa;- UAT checklist can be signed off" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fafafa;strokeColor=#171717;fontSize=16;align=left;verticalAlign=top;spacing=24;" vertex="1" parent="1">
+          <mxGeometry x="80" y="60" width="1440" height="860" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
+
