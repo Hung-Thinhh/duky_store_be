@@ -201,6 +201,32 @@ type ProductListItem = {
   }>;
 };
 
+type ProductStockSummary = {
+  quantity: number;
+  reservedQuantity: number;
+  availableQuantity: number;
+  lowStockThreshold: number;
+  soldOut: boolean;
+  isLowStock: boolean;
+};
+
+type AdminProductSummary = {
+  variantsCount: number;
+  stockSummary: ProductStockSummary | null;
+};
+
+type AdminProductListRow = Omit<ProductListItem, 'images' | 'variants'> & {
+  image: ProductListItem['images'][number] | null;
+  totalCount: number;
+  variantsCount: number;
+  inventoryCount: number;
+  quantity: number;
+  reservedQuantity: number;
+  lowStockThreshold: number;
+  soldOut: boolean;
+  isLowStock: boolean;
+};
+
 type SeoData = Omit<
   Prisma.SeoMetadataUncheckedCreateInput,
   'id' | 'entityType' | 'entityId' | 'createdAt' | 'updatedAt'
@@ -219,22 +245,21 @@ export class ProductsService {
   async listAdmin(query: ListAdminProductsQueryDto) {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
-    const where = this.buildAdminWhere(query);
-
-    const [total, products] = await this.prisma.$transaction([
-      this.prisma.product.count({ where }),
-      this.prisma.product.findMany({
-        where,
-        select: this.productListSelect({ includeAdminMeta: true }),
-        orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
-      }),
-    ]);
+    const rows = await this.findAdminProductListRows(query, page, limit);
+    const total =
+      rows[0]?.totalCount ??
+      (page > 1
+        ? await this.prisma.product.count({
+            where: this.buildAdminWhere(query),
+          })
+        : 0);
 
     return {
-      data: products.map((product) =>
-        this.toProductListItem(product as unknown as ProductListItem),
+      data: rows.map((row) =>
+        this.toProductListItem(
+          this.toProductListItemInput(row),
+          this.toAdminProductSummary(row),
+        ),
       ),
       pagination: this.toPagination(page, limit, total),
     };
@@ -545,6 +570,161 @@ export class ProductsService {
     }
 
     return [{ publishedAt: 'desc' }, { createdAt: 'desc' }];
+  }
+
+  private async findAdminProductListRows(
+    query: ListAdminProductsQueryDto,
+    page: number,
+    limit: number,
+  ) {
+    const filters: Prisma.Sql[] = [Prisma.sql`p."deletedAt" is null`];
+    const search = query.search?.trim();
+
+    if (search) {
+      const pattern = `%${search}%`;
+      filters.push(
+        Prisma.sql`(
+          p."name" ilike ${pattern}
+          or p."slug" ilike ${pattern}
+          or p."sku" ilike ${pattern}
+        )`,
+      );
+    }
+
+    if (query.status) {
+      filters.push(Prisma.sql`p."status" = ${query.status}::"ProductStatus"`);
+    }
+
+    if (query.type) {
+      filters.push(Prisma.sql`p."type" = ${query.type}::"ProductType"`);
+    }
+
+    if (query.categoryId) {
+      filters.push(
+        Prisma.sql`exists (
+          select 1
+          from "product_categories" pc
+          where pc."productId" = p."id"
+            and pc."categoryId" = ${query.categoryId}
+        )`,
+      );
+    }
+
+    if (query.tagId) {
+      filters.push(
+        Prisma.sql`exists (
+          select 1
+          from "product_tags" pt
+          where pt."productId" = p."id"
+            and pt."tagId" = ${query.tagId}
+        )`,
+      );
+    }
+
+    const offset = (page - 1) * limit;
+    const whereSql = Prisma.join(filters, ' and ');
+
+    return this.prisma.$queryRaw<AdminProductListRow[]>(
+      Prisma.sql`
+        select
+          count(*) over()::int as "totalCount",
+          p."id",
+          p."name",
+          p."slug",
+          p."sku",
+          p."type",
+          p."status",
+          p."catalogVisibility",
+          p."originalPrice",
+          p."salePrice",
+          p."contactForPrice",
+          p."thumbnailMediaId",
+          case
+            when tm."id" is null then null
+            else json_build_object(
+              'id', tm."id",
+              'url', tm."url",
+              'secureUrl', tm."secureUrl",
+              'fileName', tm."fileName",
+              'altText', tm."altText",
+              'title', tm."title",
+              'width', tm."width",
+              'height', tm."height"
+            )
+          end as "thumbnailMedia",
+          p."isFeatured",
+          p."isBestSeller",
+          p."isNewArrival",
+          p."publishedAt",
+          p."createdAt",
+          p."updatedAt",
+          img."image",
+          case
+            when inv."id" is null then null
+            else json_build_object(
+              'id', inv."id",
+              'quantity', inv."quantity",
+              'reservedQuantity', inv."reservedQuantity",
+              'lowStockThreshold', inv."lowStockThreshold",
+              'soldOut', inv."soldOut",
+              'createdAt', inv."createdAt",
+              'updatedAt', inv."updatedAt"
+            )
+          end as "inventory",
+          coalesce(vs."variantsCount", 0)::int as "variantsCount",
+          coalesce(vs."inventoryCount", 0)::int as "inventoryCount",
+          coalesce(vs."quantity", 0)::int as "quantity",
+          coalesce(vs."reservedQuantity", 0)::int as "reservedQuantity",
+          coalesce(vs."lowStockThreshold", 0)::int as "lowStockThreshold",
+          coalesce(vs."soldOut", false) as "soldOut",
+          coalesce(vs."isLowStock", false) as "isLowStock"
+        from "products" p
+        left join "media" tm on tm."id" = p."thumbnailMediaId"
+        left join "inventories" inv on inv."productId" = p."id"
+        left join lateral (
+          select json_build_object(
+            'id', pi."id",
+            'mediaId', pi."mediaId",
+            'altText', pi."altText",
+            'sortOrder', pi."sortOrder",
+            'isPrimary', pi."isPrimary",
+            'media', json_build_object(
+              'id', pm."id",
+              'url', pm."url",
+              'secureUrl', pm."secureUrl",
+              'fileName', pm."fileName",
+              'altText', pm."altText",
+              'title', pm."title",
+              'width', pm."width",
+              'height', pm."height"
+            )
+          ) as "image"
+          from "product_images" pi
+          join "media" pm on pm."id" = pi."mediaId"
+          where pi."productId" = p."id"
+          order by pi."isPrimary" desc, pi."sortOrder" asc, pi."createdAt" asc
+          limit 1
+        ) img on true
+        left join lateral (
+          select
+            count(pv."id")::int as "variantsCount",
+            count(vi."id")::int as "inventoryCount",
+            coalesce(sum(vi."quantity"), 0)::int as "quantity",
+            coalesce(sum(vi."reservedQuantity"), 0)::int as "reservedQuantity",
+            coalesce(sum(vi."lowStockThreshold"), 0)::int as "lowStockThreshold",
+            coalesce(bool_and(vi."soldOut"), false) as "soldOut",
+            coalesce(bool_or(vi."quantity" <= vi."lowStockThreshold"), false) as "isLowStock"
+          from "product_variants" pv
+          left join "inventories" vi on vi."variantId" = pv."id"
+          where pv."productId" = p."id"
+            and pv."deletedAt" is null
+        ) vs on true
+        where ${whereSql}
+        order by p."createdAt" desc
+        offset ${offset}
+        limit ${limit}
+      `,
+    );
   }
 
   private async buildUpdateData(
@@ -1385,29 +1565,6 @@ export class ProductsService {
       select.inventory = {
         select: this.inventoryListSelect(),
       };
-      select.variants = {
-        where: { deletedAt: null },
-        select: {
-          id: true,
-          productId: true,
-          name: true,
-          sku: true,
-          sizeLabel: true,
-          sizeGender: true,
-          colorName: true,
-          colorHex: true,
-          price: true,
-          salePrice: true,
-          isActive: true,
-          sortOrder: true,
-          createdAt: true,
-          updatedAt: true,
-          inventory: {
-            select: this.inventoryListSelect(),
-          },
-        },
-        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-      };
     }
 
     return select;
@@ -1459,7 +1616,51 @@ export class ProductsService {
     };
   }
 
-  private toProductListItem(product: ProductListItem) {
+  private toProductListItemInput(row: AdminProductListRow): ProductListItem {
+    return {
+      id: row.id,
+      name: row.name,
+      slug: row.slug,
+      sku: row.sku,
+      type: row.type,
+      status: row.status,
+      catalogVisibility: row.catalogVisibility,
+      originalPrice: row.originalPrice,
+      salePrice: row.salePrice,
+      contactForPrice: row.contactForPrice,
+      thumbnailMediaId: row.thumbnailMediaId,
+      thumbnailMedia: row.thumbnailMedia,
+      isFeatured: row.isFeatured,
+      isBestSeller: row.isBestSeller,
+      isNewArrival: row.isNewArrival,
+      publishedAt: row.publishedAt,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      images: row.image ? [row.image] : [],
+      inventory: row.inventory,
+    };
+  }
+
+  private toAdminProductSummary(row: AdminProductListRow): AdminProductSummary {
+    return {
+      variantsCount: row.variantsCount,
+      stockSummary: row.inventoryCount
+        ? {
+            quantity: row.quantity,
+            reservedQuantity: row.reservedQuantity,
+            availableQuantity: row.quantity - row.reservedQuantity,
+            lowStockThreshold: row.lowStockThreshold,
+            soldOut: row.soldOut,
+            isLowStock: row.isLowStock,
+          }
+        : null,
+    };
+  }
+
+  private toProductListItem(
+    product: ProductListItem,
+    adminSummary?: AdminProductSummary,
+  ) {
     const primaryImage = product.images[0];
     const thumbnailMedia = product.thumbnailMedia ?? primaryImage?.media ?? null;
     const variants = product.variants?.map((variant) => {
@@ -1485,6 +1686,7 @@ export class ProductsService {
       : product.inventory
         ? [product.inventory]
         : [];
+    const variantsCount = adminSummary?.variantsCount ?? variants?.length ?? 0;
     const quantity = stockEntries.reduce(
       (sum, inventory) => sum + inventory.quantity,
       0,
@@ -1506,23 +1708,28 @@ export class ProductsService {
             product.inventory.quantity <= product.inventory.lowStockThreshold,
         }
       : null;
-    const adminMeta =
-      product.inventory !== undefined || product.variants !== undefined
+    const stockSummary =
+      adminSummary?.stockSummary ??
+      (stockEntries.length
         ? {
-            variantsCount: variants?.length ?? 0,
+            quantity,
+            reservedQuantity,
+            availableQuantity: quantity - reservedQuantity,
+            lowStockThreshold,
+            soldOut: stockEntries.every((item) => item.soldOut),
+            isLowStock: stockEntries.some(
+              (item) => item.quantity <= item.lowStockThreshold,
+            ),
+          }
+        : null);
+    const adminMeta =
+      product.inventory !== undefined ||
+      product.variants !== undefined ||
+      adminSummary !== undefined
+        ? {
+            variantsCount,
             inventory,
-            stockSummary: stockEntries.length
-              ? {
-                  quantity,
-                  reservedQuantity,
-                  availableQuantity: quantity - reservedQuantity,
-                  lowStockThreshold,
-                  soldOut: stockEntries.every((item) => item.soldOut),
-                  isLowStock: stockEntries.some(
-                    (item) => item.quantity <= item.lowStockThreshold,
-                  ),
-                }
-              : null,
+            stockSummary,
             variants: variants ?? [],
           }
         : {};

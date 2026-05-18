@@ -197,13 +197,25 @@ export class AuthService {
   }
 
   async validateJwtPayload(payload: JwtPayload): Promise<AuthUser> {
-    const user = await this.findUserById(payload.sub);
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        status: true,
+      },
+    });
 
     if (!user || user.status !== 'ACTIVE') {
       throw new UnauthorizedException('User is not active');
     }
 
-    return this.toAuthUser(user);
+    return {
+      ...user,
+      roles: payload.roles,
+      permissions: payload.permissions,
+    };
   }
 
   private async issueTokenPair(
