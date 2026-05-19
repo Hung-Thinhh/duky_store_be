@@ -227,6 +227,32 @@ type AdminProductListRow = Omit<ProductListItem, 'images' | 'variants'> & {
   isLowStock: boolean;
 };
 
+type PublicProductVariant = {
+  id: string;
+  productId: string;
+  name: string | null;
+  sku: string;
+  sizeLabel: string | null;
+  sizeGender: string | null;
+  colorName: string | null;
+  colorHex: string | null;
+  price: number | null;
+  salePrice: number | null;
+  isActive: boolean;
+  sortOrder: number;
+  createdAt: Date;
+  updatedAt: Date;
+  inventory: {
+    id: string;
+    quantity: number;
+    reservedQuantity: number;
+    lowStockThreshold: number;
+    soldOut: boolean;
+    createdAt: Date;
+    updatedAt: Date;
+  } | null;
+};
+
 type SeoData = Omit<
   Prisma.SeoMetadataUncheckedCreateInput,
   'id' | 'entityType' | 'entityId' | 'createdAt' | 'updatedAt'
@@ -377,6 +403,55 @@ export class ProductsService {
     const seo = await this.findSeo(product.id);
 
     return this.toProduct(product as unknown as ProductWithRelations, seo);
+  }
+
+  async listPublicVariantsBySlug(slug: string) {
+    const product = await this.prisma.product.findFirst({
+      where: {
+        slug,
+        deletedAt: null,
+        status: ProductStatus.PUBLISHED,
+      },
+      select: {
+        id: true,
+        variants: {
+          where: {
+            deletedAt: null,
+            isActive: true,
+          },
+          select: {
+            id: true,
+            productId: true,
+            name: true,
+            sku: true,
+            sizeLabel: true,
+            sizeGender: true,
+            colorName: true,
+            colorHex: true,
+            price: true,
+            salePrice: true,
+            isActive: true,
+            sortOrder: true,
+            createdAt: true,
+            updatedAt: true,
+            inventory: {
+              select: this.inventoryListSelect(),
+            },
+          },
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+        },
+      },
+    });
+
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
+    return {
+      data: product.variants.map((variant) =>
+        this.toPublicProductVariant(variant as PublicProductVariant),
+      ),
+    };
   }
 
   async update(id: string, updateDto: UpdateProductDto, userId: string) {
@@ -546,6 +621,18 @@ export class ProductsService {
           },
         },
       };
+    }
+
+    if (query.isFeatured !== undefined) {
+      where.isFeatured = query.isFeatured;
+    }
+
+    if (query.isBestSeller !== undefined) {
+      where.isBestSeller = query.isBestSeller;
+    }
+
+    if (query.isNewArrival !== undefined) {
+      where.isNewArrival = query.isNewArrival;
     }
 
     if (query.minPrice !== undefined || query.maxPrice !== undefined) {
@@ -1764,6 +1851,23 @@ export class ProductsService {
       publishedAt: product.publishedAt,
       createdAt: product.createdAt,
       updatedAt: product.updatedAt,
+    };
+  }
+
+  private toPublicProductVariant(variant: PublicProductVariant) {
+    const inventory = variant.inventory
+      ? {
+          ...variant.inventory,
+          availableQuantity:
+            variant.inventory.quantity - variant.inventory.reservedQuantity,
+          isLowStock:
+            variant.inventory.quantity <= variant.inventory.lowStockThreshold,
+        }
+      : null;
+
+    return {
+      ...variant,
+      inventory,
     };
   }
 

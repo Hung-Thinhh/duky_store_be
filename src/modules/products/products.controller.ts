@@ -14,6 +14,12 @@ export class ProductsController {
     return this.productsService.listPublic(query);
   }
 
+  @Get(':slug/variants')
+  @ApiOperation({ summary: 'List active variants for published product by slug' })
+  listVariantsBySlug(@Param('slug') slug: string) {
+    return this.productsService.listPublicVariantsBySlug(slug);
+  }
+
   @Get(':slug')
   @ApiOperation({ summary: 'Get published product by slug' })
   getBySlug(@Param('slug') slug: string) {

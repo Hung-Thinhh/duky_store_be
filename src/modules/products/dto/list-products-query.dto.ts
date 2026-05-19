@@ -1,11 +1,31 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import {
+  IsBoolean,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
 
 export enum ProductSort {
   NEWEST = 'newest',
   PRICE_ASC = 'price_asc',
   PRICE_DESC = 'price_desc',
+}
+
+function toOptionalBoolean(value: unknown) {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes'].includes(normalized)) return true;
+    if (['false', '0', 'no'].includes(normalized)) return false;
+  }
+
+  return value;
 }
 
 export class ListProductsQueryDto {
@@ -38,6 +58,24 @@ export class ListProductsQueryDto {
   @IsOptional()
   @IsString()
   tagSlug?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Transform(({ obj, key }) => toOptionalBoolean(obj[key]))
+  @IsBoolean()
+  isFeatured?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Transform(({ obj, key }) => toOptionalBoolean(obj[key]))
+  @IsBoolean()
+  isBestSeller?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Transform(({ obj, key }) => toOptionalBoolean(obj[key]))
+  @IsBoolean()
+  isNewArrival?: boolean;
 
   @ApiPropertyOptional({ minimum: 0 })
   @IsOptional()
