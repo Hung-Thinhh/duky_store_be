@@ -6,6 +6,8 @@ import { RefreshTokenDto } from '../auth/dto/refresh-token.dto';
 import type { RequestMeta } from '../auth/types/request-meta.type';
 import { CustomerAuthService } from './customer-auth.service';
 import { CurrentCustomer } from './decorators/current-customer.decorator';
+import { LoginDto } from './dto/login.dto';
+import { RegisterDto } from './dto/register.dto';
 import { CustomerJwtAuthGuard } from './guards/customer-jwt-auth.guard';
 import type { CustomerAuthUser } from './types/customer-auth-user.type';
 
@@ -13,6 +15,26 @@ import type { CustomerAuthUser } from './types/customer-auth-user.type';
 @Controller('customer/auth')
 export class CustomerAuthController {
   constructor(private readonly customerAuthService: CustomerAuthService) {}
+
+  @Post('register')
+  @ApiOperation({ summary: 'Register a new customer with email and password' })
+  @ApiBody({ type: RegisterDto })
+  register(@Body() registerDto: RegisterDto, @Req() request: Request) {
+    return this.customerAuthService.register(
+      registerDto,
+      this.getRequestMeta(request),
+    );
+  }
+
+  @Post('login')
+  @ApiOperation({ summary: 'Login customer with email and password' })
+  @ApiBody({ type: LoginDto })
+  login(@Body() loginDto: LoginDto, @Req() request: Request) {
+    return this.customerAuthService.loginWithEmail(
+      loginDto,
+      this.getRequestMeta(request),
+    );
+  }
 
   @Post('google')
   @ApiOperation({

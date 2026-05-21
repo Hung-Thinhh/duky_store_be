@@ -19,6 +19,10 @@ export class PrismaService
         configService.get<string>('NODE_ENV') === 'development'
           ? ['query', 'warn', 'error']
           : ['warn', 'error'],
+      transactionOptions: {
+        maxWait: 10000,   // max time to wait for a transaction slot (10s)
+        timeout: 30000,   // max time a transaction can run (30s)
+      },
     });
   }
 
