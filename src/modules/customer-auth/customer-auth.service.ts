@@ -1,13 +1,19 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import * as bcrypt from 'bcryptjs';
 import { createHash, randomBytes, randomUUID } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
+import { LoginDto } from './dto/login.dto';
+import { RegisterDto } from './dto/register.dto';
 import { GoogleLoginDto } from '../auth/dto/google-login.dto';
 import { RefreshTokenDto } from '../auth/dto/refresh-token.dto';
 import { RequestMeta } from '../auth/types/request-meta.type';
@@ -29,6 +35,11 @@ type GoogleTokenInfo = {
 
 @Injectable()
 export class CustomerAuthService {
+  private readonly failedAttempts = new Map<
+    string,
+    { count: number; firstAttemptAt: number; lockedUntil: number | null }
+  >();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
@@ -51,6 +62,74 @@ export class CustomerAuthService {
     if (customer.status !== 'ACTIVE') {
       throw new ForbiddenException('Customer account is blocked');
     }
+
+    return this.issueTokenPair(customer, requestMeta);
+  }
+
+  async register(registerDto: RegisterDto, requestMeta: RequestMeta) {
+    if (registerDto.password !== registerDto.passwordConfirmation) {
+      throw new BadRequestException('Mật khẩu xác nhận không khớp');
+    }
+
+    const email = registerDto.email.toLowerCase();
+
+    const existingCustomer = await this.prisma.customer.findUnique({
+      where: { email },
+    });
+
+    if (existingCustomer) {
+      throw new ConflictException('Email đã được đăng ký');
+    }
+
+    const passwordHash = await bcrypt.hash(registerDto.password, 10);
+
+    const customer = await this.prisma.customer.create({
+      data: {
+        email,
+        fullName: email.split('@')[0],
+        passwordHash,
+        status: 'ACTIVE',
+        type: 'NEW',
+      },
+    });
+
+    return this.issueTokenPair(customer, requestMeta);
+  }
+
+  async loginWithEmail(loginDto: LoginDto, requestMeta: RequestMeta) {
+    const email = loginDto.email.toLowerCase();
+
+    this.checkRateLimit(email);
+
+    const customer = await this.prisma.customer.findUnique({
+      where: { email },
+    });
+
+    if (!customer) {
+      this.recordFailedAttempt(email);
+      throw new UnauthorizedException('Email hoặc mật khẩu không đúng');
+    }
+
+    if (!customer.passwordHash) {
+      this.recordFailedAttempt(email);
+      throw new UnauthorizedException('Email hoặc mật khẩu không đúng');
+    }
+
+    const isPasswordValid = await bcrypt.compare(
+      loginDto.password,
+      customer.passwordHash,
+    );
+
+    if (!isPasswordValid) {
+      this.recordFailedAttempt(email);
+      throw new UnauthorizedException('Email hoặc mật khẩu không đúng');
+    }
+
+    if (customer.status === 'BLOCKED') {
+      throw new ForbiddenException('Tài khoản đã bị khóa');
+    }
+
+    this.clearFailedAttempts(email);
 
     return this.issueTokenPair(customer, requestMeta);
   }
@@ -306,5 +385,73 @@ export class CustomerAuthService {
     };
 
     return amount * multipliers[unit];
+  }
+
+  private checkRateLimit(email: string): void {
+    const record = this.failedAttempts.get(email);
+
+    if (!record) {
+      return;
+    }
+
+    const now = Date.now();
+
+    if (record.lockedUntil && now < record.lockedUntil) {
+      throw new HttpException(
+        'Quá nhiều lần thử, vui lòng đợi 15 phút',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    if (record.lockedUntil && now >= record.lockedUntil) {
+      this.failedAttempts.delete(email);
+      return;
+    }
+
+    const windowMs = 15 * 60 * 1000;
+
+    if (now - record.firstAttemptAt > windowMs) {
+      this.failedAttempts.delete(email);
+      return;
+    }
+
+    if (record.count >= 5) {
+      record.lockedUntil = now + windowMs;
+      throw new HttpException(
+        'Quá nhiều lần thử, vui lòng đợi 15 phút',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+  }
+
+  private recordFailedAttempt(email: string): void {
+    const record = this.failedAttempts.get(email);
+    const now = Date.now();
+
+    if (!record) {
+      this.failedAttempts.set(email, {
+        count: 1,
+        firstAttemptAt: now,
+        lockedUntil: null,
+      });
+      return;
+    }
+
+    const windowMs = 15 * 60 * 1000;
+
+    if (now - record.firstAttemptAt > windowMs) {
+      this.failedAttempts.set(email, {
+        count: 1,
+        firstAttemptAt: now,
+        lockedUntil: null,
+      });
+      return;
+    }
+
+    record.count += 1;
+  }
+
+  private clearFailedAttempts(email: string): void {
+    this.failedAttempts.delete(email);
   }
 }
