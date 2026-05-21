@@ -361,6 +361,18 @@ export class BlogPostsService {
     }
   }
 
+  private async assertMediaIdsExist(mediaIds: string[]) {
+    const ids = this.uniqueIds(mediaIds);
+    if (!ids.length) return;
+
+    const media = await this.prisma.media.findMany({
+      where: { id: { in: ids }, deletedAt: null },
+      select: { id: true },
+    });
+
+    this.assertAllIdsExist(ids, media.map((item) => item.id), 'media');
+  }
+
   private async getPostOrThrow(id: string) {
     const post = await this.prisma.blogPost.findFirst({
       where: { id, deletedAt: null },

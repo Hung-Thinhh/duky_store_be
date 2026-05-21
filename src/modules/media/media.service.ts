@@ -1,16 +1,19 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
+import sharp from 'sharp';
 import { MediaProvider, Prisma } from '../../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { CreateExternalMediaDto } from './dto/create-external-media.dto';
 import { ListMediaQueryDto } from './dto/list-media-query.dto';
 import { UpdateMediaDto } from './dto/update-media.dto';
+import { UploadMediaMetadataDto } from './dto/upload-media-metadata.dto';
 
 const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024;
 const LOCAL_MEDIA_FOLDER = join(process.cwd(), 'uploads', 'media');
@@ -35,6 +38,20 @@ const IMAGE_EXTENSION_MIME_TYPES: Record<string, string> = {
   svg: 'image/svg+xml',
 };
 
+interface ImageDimensions {
+  width: number | null;
+  height: number | null;
+}
+
+const WEBP_CONVERTIBLE_MIME_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/avif',
+]);
+
+const DIMENSION_EXTRACTION_TIMEOUT_MS = 5000;
+
 type MediaWithUploader = NonNullable<
   Awaited<ReturnType<MediaService['findById']>>
 >;
@@ -47,6 +64,8 @@ type UploadedMediaFile = {
 
 @Injectable()
 export class MediaService {
+  private readonly logger = new Logger(MediaService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   async list(query: ListMediaQueryDto) {
@@ -93,16 +112,23 @@ export class MediaService {
     return this.toMedia(media);
   }
 
-  async createLocal(file: UploadedMediaFile, uploadedById: string, baseUrl: string) {
+  async createLocal(file: UploadedMediaFile, uploadedById: string, baseUrl: string, metadata?: UploadMediaMetadataDto) {
     this.assertUploadFile(file);
 
     await mkdir(LOCAL_MEDIA_FOLDER, { recursive: true });
 
-    const extension = this.resolveUploadExtension(file);
-    const storedFileName = `${randomUUID()}${extension}`;
+    // Extract image dimensions (width/height)
+    const dimensions = await this.extractDimensions(file.buffer);
+
+    // Convert to WebP (or keep original for SVG/already WebP)
+    const converted = await this.convertToWebp(file.buffer, file.mimetype);
+
+    // Use the new extension from conversion result
+    const storedFileName = `${randomUUID()}${converted.extension}`;
     const filePath = join(LOCAL_MEDIA_FOLDER, storedFileName);
 
-    await writeFile(filePath, file.buffer);
+    // Write the converted buffer (or original if SVG/already WebP)
+    await writeFile(filePath, converted.buffer);
 
     const url = `${baseUrl}/api/v1/media/files/${storedFileName}`;
     const media = await this.prisma.media.create({
@@ -114,9 +140,13 @@ export class MediaService {
         providerKey: storedFileName,
         fileName: storedFileName,
         originalName: file.originalname,
-        mimeType: file.mimetype,
-        size: file.size,
+        mimeType: converted.mimeType,
+        size: converted.buffer.length,
+        width: dimensions.width,
+        height: dimensions.height,
         folder: 'uploads',
+        altText: metadata?.altText?.trim() || null,
+        title: metadata?.title?.trim() || null,
       },
       include: this.mediaInclude(),
     });
@@ -143,11 +173,45 @@ export class MediaService {
   }
 
   async update(id: string, updateDto: UpdateMediaDto) {
-    await this.getMediaOrThrow(id);
+    const existing = await this.getMediaOrThrow(id);
     const data = this.normalizeUpdateInput(updateDto);
 
     if (!Object.keys(data).length) {
       throw new BadRequestException('No update data provided');
+    }
+
+    // If fileName is being updated for a LOCAL media, rename the file on disk
+    if (
+      data.fileName &&
+      typeof data.fileName === 'string' &&
+      existing.provider === MediaProvider.LOCAL &&
+      existing.providerKey
+    ) {
+      const newFileName = data.fileName as string;
+      const oldFilePath = join(LOCAL_MEDIA_FOLDER, existing.providerKey);
+
+      // Add short random suffix to avoid collisions: slug-a3f2.webp
+      const ext = extname(newFileName) || extname(existing.providerKey || '');
+      const nameWithoutExt = newFileName.replace(/\.[^.]+$/, '');
+      const suffix = randomUUID().substring(0, 4);
+      const finalFileName = `${nameWithoutExt}-${suffix}${ext}`;
+      const newFilePath = join(LOCAL_MEDIA_FOLDER, finalFileName);
+
+      try {
+        await rename(oldFilePath, newFilePath);
+
+        // Update URL, providerKey, and fileName to reflect the new file name
+        const baseUrl = existing.url.replace(`/api/v1/media/files/${existing.providerKey}`, '');
+        const newUrl = `${baseUrl}/api/v1/media/files/${finalFileName}`;
+
+        data.providerKey = finalFileName;
+        data.fileName = finalFileName;
+        data.url = newUrl;
+        data.secureUrl = newUrl;
+      } catch (err) {
+        this.logger.warn(`Failed to rename media file: ${err instanceof Error ? err.message : 'Unknown error'}`);
+        // If rename fails, still update metadata but keep old file path
+      }
     }
 
     const media = await this.prisma.media.update({
@@ -424,6 +488,80 @@ export class MediaService {
 
   private nullableTrim(value?: string | null) {
     return value?.trim() || null;
+  }
+
+  private async extractDimensions(buffer: Buffer): Promise<ImageDimensions> {
+    try {
+      const metadata = await Promise.race([
+        sharp(buffer).metadata(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Timeout')), DIMENSION_EXTRACTION_TIMEOUT_MS),
+        ),
+      ]);
+
+      // SVG format returns format === 'svg', treat as non-extractable
+      if (metadata.format === 'svg') {
+        return { width: null, height: null };
+      }
+
+      const width = metadata.width;
+      const height = metadata.height;
+
+      if (
+        width != null &&
+        height != null &&
+        Number.isInteger(width) &&
+        Number.isInteger(height) &&
+        width >= 1 &&
+        width <= 65535 &&
+        height >= 1 &&
+        height <= 65535
+      ) {
+        return { width, height };
+      }
+
+      return { width: null, height: null };
+    } catch {
+      // SVG, corrupt files, timeout → graceful fallback
+      return { width: null, height: null };
+    }
+  }
+
+  private async convertToWebp(
+    buffer: Buffer,
+    mimeType: string,
+  ): Promise<{ buffer: Buffer; mimeType: string; extension: string }> {
+    // SVG files should not be converted (vector format)
+    if (mimeType === 'image/svg+xml') {
+      return { buffer, mimeType, extension: '.svg' };
+    }
+
+    // Already WebP — keep as-is
+    if (mimeType === 'image/webp') {
+      return { buffer, mimeType, extension: '.webp' };
+    }
+
+    // Only convert supported raster formats
+    if (!WEBP_CONVERTIBLE_MIME_TYPES.has(mimeType)) {
+      const ext = Object.entries(IMAGE_EXTENSION_MIME_TYPES).find(
+        ([, mime]) => mime === mimeType,
+      )?.[0];
+      return { buffer, mimeType, extension: ext ? `.${ext}` : '' };
+    }
+
+    try {
+      const webpBuffer = await sharp(buffer).webp({ quality: 85 }).toBuffer();
+      return { buffer: webpBuffer, mimeType: 'image/webp', extension: '.webp' };
+    } catch (error) {
+      // Conversion failed — fallback to original buffer
+      this.logger.warn(
+        `WebP conversion failed, keeping original format: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      const ext = Object.entries(IMAGE_EXTENSION_MIME_TYPES).find(
+        ([, mime]) => mime === mimeType,
+      )?.[0];
+      return { buffer, mimeType, extension: ext ? `.${ext}` : '' };
+    }
   }
 
   private toMedia(media: MediaWithUploader) {

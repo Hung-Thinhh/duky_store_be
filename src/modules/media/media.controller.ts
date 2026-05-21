@@ -33,6 +33,7 @@ import type { AuthUser } from '../auth/types/auth-user.type';
 import { CreateExternalMediaDto } from './dto/create-external-media.dto';
 import { ListMediaQueryDto } from './dto/list-media-query.dto';
 import { UpdateMediaDto } from './dto/update-media.dto';
+import { UploadMediaMetadataDto } from './dto/upload-media-metadata.dto';
 import { MediaService } from './media.service';
 
 const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024;
@@ -72,10 +73,11 @@ export class MediaController {
   @ApiOperation({ summary: 'Upload one local image file' })
   upload(
     @UploadedFile(imageUploadPipe) file: any,
+    @Body() metadata: UploadMediaMetadataDto,
     @CurrentUser() user: AuthUser,
     @Req() request: Request,
   ) {
-    return this.mediaService.createLocal(file, user.id, this.getBaseUrl(request));
+    return this.mediaService.createLocal(file, user.id, this.getBaseUrl(request), metadata);
   }
 
   @Post('upload-multiple')

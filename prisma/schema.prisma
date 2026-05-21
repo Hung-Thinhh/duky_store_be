@@ -178,6 +178,13 @@ enum PageType {
   CUSTOM
 }
 
+enum BlogReusableBlockType {
+  TITLE
+  CONTENT
+  FOOTER
+  CUSTOM
+}
+
 enum MediaProvider {
   LOCAL
   CLOUDINARY
@@ -298,6 +305,8 @@ model User {
   productCreated Product[]            @relation("ProductCreatedBy")
   productUpdated Product[]            @relation("ProductUpdatedBy")
   blogPosts      BlogPost[]           @relation("BlogPostAuthor")
+  reusableBlocksCreated BlogReusableBlock[] @relation("BlogReusableBlockCreatedBy")
+  reusableBlocksUpdated BlogReusableBlock[] @relation("BlogReusableBlockUpdatedBy")
   reviewReplies  ProductReview[]      @relation("ReviewRepliedBy")
   auditLogs      AuditLog[]           @relation("AuditActor")
   reportExports  ReportExport[]       @relation("ReportRequestedBy")
@@ -1414,6 +1423,30 @@ model BlogPostTag {
   @@id([postId, tagId])
   @@index([tagId])
   @@map("blog_post_tags")
+}
+
+model BlogReusableBlock {
+  id          String                @id @default(cuid())
+  name        String
+  slug        String                @unique
+  type        BlogReusableBlockType @default(CUSTOM)
+  description String?               @db.Text
+  html        String                @db.Text
+  isActive    Boolean               @default(true)
+  sortOrder   Int                   @default(0)
+  createdById String?
+  updatedById String?
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+  deletedAt   DateTime?
+
+  createdBy User? @relation("BlogReusableBlockCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy User? @relation("BlogReusableBlockUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([type, isActive, sortOrder])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("blog_reusable_blocks")
 }
 
 model Page {
