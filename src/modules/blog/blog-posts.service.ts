@@ -429,6 +429,9 @@ export class BlogPostsService {
     if (seoDto.ogImageMediaId !== undefined) data.ogImageMediaId = seoDto.ogImageMediaId || null;
     if (seoDto.twitterTitle !== undefined) data.twitterTitle = this.nullableTrim(seoDto.twitterTitle);
     if (seoDto.twitterDescription !== undefined) data.twitterDescription = this.nullableTrim(seoDto.twitterDescription);
+    if (seoDto.focusKeyword !== undefined) data.focusKeyword = this.nullableTrim(seoDto.focusKeyword);
+    if (seoDto.seoScore !== undefined) data.seoScore = seoDto.seoScore ?? null;
+    if (seoDto.analysisJson !== undefined) data.analysisJson = seoDto.analysisJson as Prisma.InputJsonValue;
     if (seoDto.schemaType !== undefined) data.schemaType = this.nullableTrim(seoDto.schemaType);
     if (seoDto.schemaJson !== undefined) data.schemaJson = seoDto.schemaJson as Prisma.InputJsonValue;
     if (seoDto.breadcrumbJson !== undefined) data.breadcrumbJson = seoDto.breadcrumbJson as Prisma.InputJsonValue;

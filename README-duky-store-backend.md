@@ -1013,7 +1013,7 @@ http://localhost:4000
 {
   "start": "nest start",
   "start:dev": "nest start --watch",
-  "start:prod": "node dist/main",
+  "start:prod": "node dist/src/main",
   "build": "nest build",
   "lint": "eslint .",
   "format": "prettier --write .",

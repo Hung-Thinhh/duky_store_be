@@ -4,6 +4,8 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { randomUUID } from 'node:crypto';
 import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
@@ -14,6 +16,7 @@ import { CreateExternalMediaDto } from './dto/create-external-media.dto';
 import { ListMediaQueryDto } from './dto/list-media-query.dto';
 import { UpdateMediaDto } from './dto/update-media.dto';
 import { UploadMediaMetadataDto } from './dto/upload-media-metadata.dto';
+import { MediaAiIndexService } from './media-ai-index.service';
 
 const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024;
 const LOCAL_MEDIA_FOLDER = join(process.cwd(), 'uploads', 'media');
@@ -65,8 +68,13 @@ type UploadedMediaFile = {
 @Injectable()
 export class MediaService {
   private readonly logger = new Logger(MediaService.name);
+  private r2Client?: S3Client;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly configService: ConfigService,
+    private readonly mediaAiIndexService: MediaAiIndexService,
+  ) {}
 
   async list(query: ListMediaQueryDto) {
     const page = query.page ?? 1;
@@ -109,13 +117,13 @@ export class MediaService {
       include: this.mediaInclude(),
     });
 
+    await this.safeUpsertAiIndex(media);
+
     return this.toMedia(media);
   }
 
   async createLocal(file: UploadedMediaFile, uploadedById: string, baseUrl: string, metadata?: UploadMediaMetadataDto) {
     this.assertUploadFile(file);
-
-    await mkdir(LOCAL_MEDIA_FOLDER, { recursive: true });
 
     // Extract image dimensions (width/height)
     const dimensions = await this.extractDimensions(file.buffer);
@@ -123,8 +131,42 @@ export class MediaService {
     // Convert to WebP (or keep original for SVG/already WebP)
     const converted = await this.convertToWebp(file.buffer, file.mimetype);
 
-    // Use the new extension from conversion result
-    const storedFileName = `${randomUUID()}${converted.extension}`;
+    // Use the converted extension while preserving an optional SEO-friendly base name.
+    const storedFileName = this.createStoredUploadFileName(metadata?.fileName, converted.extension);
+
+    if (this.getStorageProvider() === MediaProvider.R2) {
+      const objectKey = this.buildR2ObjectKey(storedFileName);
+      const url = this.buildR2PublicUrl(objectKey);
+
+      await this.uploadToR2(objectKey, converted.buffer, converted.mimeType);
+
+      const media = await this.prisma.media.create({
+        data: {
+          provider: MediaProvider.R2,
+          uploadedById,
+          url,
+          secureUrl: url,
+          providerKey: objectKey,
+          fileName: storedFileName,
+          originalName: file.originalname,
+          mimeType: converted.mimeType,
+          size: converted.buffer.length,
+          width: dimensions.width,
+          height: dimensions.height,
+          folder: this.getR2Prefix(),
+          altText: metadata?.altText?.trim() || null,
+          title: metadata?.title?.trim() || null,
+        },
+        include: this.mediaInclude(),
+      });
+
+      await this.safeUpsertAiIndex(media);
+
+      return this.toMedia(media);
+    }
+
+    await mkdir(LOCAL_MEDIA_FOLDER, { recursive: true });
+
     const filePath = join(LOCAL_MEDIA_FOLDER, storedFileName);
 
     // Write the converted buffer (or original if SVG/already WebP)
@@ -150,6 +192,8 @@ export class MediaService {
       },
       include: this.mediaInclude(),
     });
+
+    await this.safeUpsertAiIndex(media);
 
     return this.toMedia(media);
   }
@@ -219,6 +263,8 @@ export class MediaService {
       data,
       include: this.mediaInclude(),
     });
+
+    await this.safeUpsertAiIndex(media);
 
     return this.toMedia(media);
   }
@@ -422,6 +468,24 @@ export class MediaService {
     return extension ? `.${extension}` : '';
   }
 
+  private createStoredUploadFileName(requestedFileName: string | undefined, extension: string) {
+    const requestedBase = requestedFileName
+      ?.trim()
+      .replace(/\.[^.]+$/, '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[đĐ]/g, 'd')
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, '-')
+      .replace(/-{2,}/g, '-')
+      .replace(/^[-_]+|[-_]+$/g, '')
+      .slice(0, 100);
+
+    return requestedBase
+      ? `${requestedBase}-${randomUUID().slice(0, 4)}${extension}`
+      : `${randomUUID()}${extension}`;
+  }
+
   private resolveFileName(url: string, fileName?: string) {
     const normalizedFileName = fileName?.trim();
 
@@ -452,6 +516,100 @@ export class MediaService {
 
   private resolveMetadata(metadata?: Record<string, unknown>) {
     return metadata as Prisma.InputJsonValue | undefined;
+  }
+
+  private getStorageProvider() {
+    const provider = this.configService
+      .get<string>('MEDIA_STORAGE_PROVIDER', 'LOCAL')
+      .trim()
+      .toUpperCase();
+
+    if (provider === MediaProvider.R2) {
+      return MediaProvider.R2;
+    }
+
+    return MediaProvider.LOCAL;
+  }
+
+  private getR2Client() {
+    if (this.r2Client) {
+      return this.r2Client;
+    }
+
+    const accountId = this.getRequiredConfig('R2_ACCOUNT_ID');
+    const accessKeyId = this.getRequiredConfig('R2_ACCESS_KEY_ID');
+    const secretAccessKey = this.getRequiredConfig('R2_SECRET_ACCESS_KEY');
+
+    this.r2Client = new S3Client({
+      region: this.configService.get<string>('R2_REGION') || 'auto',
+      endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
+      forcePathStyle: true,
+      requestChecksumCalculation: 'WHEN_REQUIRED',
+      responseChecksumValidation: 'WHEN_REQUIRED',
+      credentials: {
+        accessKeyId,
+        secretAccessKey,
+      },
+    });
+
+    return this.r2Client;
+  }
+
+  private async uploadToR2(
+    key: string,
+    body: Buffer,
+    contentType: string,
+  ) {
+    const bucket = this.getRequiredConfig('R2_BUCKET');
+
+    try {
+      await this.getR2Client().send(
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: key,
+          Body: body,
+          ContentType: contentType,
+          CacheControl: 'public, max-age=31536000, immutable',
+        }),
+      );
+    } catch (error) {
+      this.logger.error(
+        `R2 upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      throw new BadRequestException('Failed to upload media to R2');
+    }
+  }
+
+  private buildR2ObjectKey(fileName: string) {
+    const prefix = this.getR2Prefix();
+
+    return prefix ? `${prefix}/${fileName}` : fileName;
+  }
+
+  private getR2Prefix() {
+    return (this.configService.get<string>('R2_PREFIX') || 'media')
+      .trim()
+      .replace(/^\/+|\/+$/g, '');
+  }
+
+  private buildR2PublicUrl(key: string) {
+    const publicUrl = this.getRequiredConfig('R2_PUBLIC_URL').replace(/\/+$/g, '');
+    const encodedKey = key
+      .split('/')
+      .map((segment) => encodeURIComponent(segment))
+      .join('/');
+
+    return `${publicUrl}/${encodedKey}`;
+  }
+
+  private getRequiredConfig(key: string) {
+    const value = this.configService.get<string>(key)?.trim();
+
+    if (!value) {
+      throw new BadRequestException(`${key} is required for R2 media storage`);
+    }
+
+    return value;
   }
 
   private async getMediaOrThrow(id: string) {
@@ -585,5 +743,17 @@ export class MediaService {
       createdAt: media.createdAt,
       updatedAt: media.updatedAt,
     };
+  }
+
+  private async safeUpsertAiIndex(media: MediaWithUploader) {
+    if (!media.mimeType.startsWith('image/')) return;
+
+    try {
+      await this.mediaAiIndexService.upsertMediaIndex(media);
+    } catch (error) {
+      this.logger.warn(
+        `Failed to update media AI index: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+    }
   }
 }

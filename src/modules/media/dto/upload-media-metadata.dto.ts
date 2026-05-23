@@ -17,4 +17,14 @@ export class UploadMediaMetadataDto {
   @MaxLength(500)
   @Matches(/^[^<>]*$/, { message: 'title must not contain HTML tags' })
   title?: string;
+
+  @ApiPropertyOptional({ example: 'boot-nu-co-thap.webp', maxLength: 180 })
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(180)
+  @Matches(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/, {
+    message: 'fileName must contain only letters, numbers, dots, underscores, or dashes',
+  })
+  fileName?: string;
 }

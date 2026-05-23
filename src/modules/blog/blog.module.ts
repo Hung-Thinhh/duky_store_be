@@ -1,4 +1,7 @@
 import { Module } from '@nestjs/common';
+import { MediaModule } from '../media/media.module';
+import { AdminBlogAiController } from './blog-ai-admin.controller';
+import { BlogAiService } from './blog-ai.service';
 import { AdminBlogCategoriesController } from './blog-categories-admin.controller';
 import { BlogCategoriesService } from './blog-categories.service';
 import { BlogController } from './blog.controller';
@@ -8,13 +11,16 @@ import { AdminBlogReusableBlocksController } from './blog-reusable-blocks-admin.
 import { BlogReusableBlocksService } from './blog-reusable-blocks.service';
 
 @Module({
+  imports: [MediaModule],
   controllers: [
+    AdminBlogAiController,
     AdminBlogCategoriesController,
     AdminBlogPostsController,
     AdminBlogReusableBlocksController,
     BlogController,
   ],
   providers: [
+    BlogAiService,
     BlogCategoriesService,
     BlogPostsService,
     BlogReusableBlocksService,

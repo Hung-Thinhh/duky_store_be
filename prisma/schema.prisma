@@ -469,11 +469,29 @@ model Media {
   seoOgImages        SeoMetadata[]     @relation("SeoOgImage")
   homepageImages     HomepageSection[] @relation("HomepageSectionImage")
   homepageItemImages HomepageItem[]    @relation("HomepageItemImage")
+  aiIndex            MediaAiIndex?
 
   @@index([provider])
   @@index([uploadedById])
   @@index([folder])
   @@map("media")
+}
+
+model MediaAiIndex {
+  id            String   @id @default(cuid())
+  mediaId       String   @unique
+  searchText    String
+  aiDescription String?
+  keywords      String[] @default([])
+  embedding     Json?
+  indexedAt     DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  media Media @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+
+  @@index([indexedAt])
+  @@map("media_ai_index")
 }
 
 model Product {

@@ -32,8 +32,10 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import type { AuthUser } from '../auth/types/auth-user.type';
 import { CreateExternalMediaDto } from './dto/create-external-media.dto';
 import { ListMediaQueryDto } from './dto/list-media-query.dto';
+import { SearchMediaAiQueryDto } from './dto/search-media-ai-query.dto';
 import { UpdateMediaDto } from './dto/update-media.dto';
 import { UploadMediaMetadataDto } from './dto/upload-media-metadata.dto';
+import { MediaAiIndexService } from './media-ai-index.service';
 import { MediaService } from './media.service';
 
 const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024;
@@ -50,12 +52,27 @@ const imageUploadPipe = new ParseFilePipe({
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('SUPER_ADMIN', 'ADMIN', 'CONTENT_EDITOR')
 export class MediaController {
-  constructor(private readonly mediaService: MediaService) {}
+  constructor(
+    private readonly mediaService: MediaService,
+    private readonly mediaAiIndexService: MediaAiIndexService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'List media records' })
   list(@Query() query: ListMediaQueryDto) {
     return this.mediaService.list(query);
+  }
+
+  @Get('ai-index/search')
+  @ApiOperation({ summary: 'Search indexed media candidates for AI workflows' })
+  searchAiIndex(@Query() query: SearchMediaAiQueryDto) {
+    return this.mediaAiIndexService.search(query.query ?? '', query.limit ?? 20);
+  }
+
+  @Post('ai-index/rebuild')
+  @ApiOperation({ summary: 'Rebuild AI search index for media metadata' })
+  rebuildAiIndex(@Query('limit') limit?: string) {
+    return this.mediaAiIndexService.rebuild(Number(limit) || 500);
   }
 
   @Post('external')
