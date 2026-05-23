@@ -124,6 +124,7 @@ export class BlogAiService {
       'HTML content chá»‰ dÃ¹ng cÃ¡c tháº» an toÃ n: p, h2, h3, ul, ol, li, strong, em, a, blockquote, table, thead, tbody, tr, th, td, img, hr.',
       'KhÃ´ng táº¡o h1 trong content vÃ¬ giao diá»‡n Ä‘Ã£ cÃ³ h1 riÃªng.',
       'Metadata SEO Ä‘Æ°á»£c frontend tá»± sinh tá»« title/excerpt/content; chá»‰ tráº£ seo khi task yÃªu cáº§u gá»£i Ã½ tá»« khÃ³a.',
+      'If context.extraContext.needsTitle or needsExcerpt is true, always return the missing title/excerpt fields even when the selected task normally avoids them.',
       'Náº¿u gá»£i Ã½ internal link, chá»‰ dÃ¹ng URL/product/blog Ä‘Æ°á»£c cung cáº¥p trong context.',
       'Náº¿u chá»n áº£nh, chá»‰ chá»n mediaId cÃ³ tháº­t trong context.extraContext.mediaLibrary, khÃ´ng tá»± bá»‹a mediaId hoáº·c URL.',
     ].join('\n');
@@ -166,6 +167,7 @@ export class BlogAiService {
         },
         improvements: ['string'],
       },
+      requiredMissingFields: this.buildMissingArticleFields(input),
       article: {
         title: input.title || '',
         slug: input.slug || '',
@@ -183,6 +185,25 @@ export class BlogAiService {
         extraContext: input.extraContext ?? {},
       },
     });
+  }
+
+  private buildMissingArticleFields(input: BlogAiAssistDto) {
+    const needsTitle = input.extraContext?.needsTitle === true;
+    const needsExcerpt = input.extraContext?.needsExcerpt === true;
+
+    return {
+      needsTitle,
+      needsExcerpt,
+      instruction: needsTitle || needsExcerpt
+        ? [
+            'The article is missing title and/or excerpt.',
+            'You must generate every missing field and return it in the JSON response.',
+            'Only fill fields marked as missing; do not rewrite fields the admin already provided.',
+            'Title should be concise, natural Vietnamese, and aligned with content/focusKeyword.',
+            'Excerpt should be a 120-160 character Vietnamese summary suitable for frontend-generated metadata.',
+          ].join(' ')
+        : 'No missing title/excerpt fields need to be generated.',
+    };
   }
 
   private buildBlockSystemPrompt() {

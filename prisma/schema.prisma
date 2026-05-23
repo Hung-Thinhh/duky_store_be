@@ -1412,6 +1412,7 @@ model BlogPost {
   categories BlogPostCategory[]
   tags       BlogPostTag[]
 
+  @@index([deletedAt, status, publishedAt])
   @@index([status, publishedAt])
   @@index([authorId])
   @@map("blog_posts")

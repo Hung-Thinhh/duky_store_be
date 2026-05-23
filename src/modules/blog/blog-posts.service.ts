@@ -30,22 +30,106 @@ export class BlogPostsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async listAdmin(query: ListBlogPostsQueryDto) {
+    const t0 = Date.now();
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
-    const where = this.buildWhere(query, false);
-    const [total, posts] = await this.prisma.$transaction([
-      this.prisma.blogPost.count({ where }),
-      this.prisma.blogPost.findMany({
-        where,
-        include: this.postInclude(),
-        orderBy: this.getOrderBy(query.sort),
-        skip: (page - 1) * limit,
-        take: limit,
-      }),
-    ]);
+    const offset = (page - 1) * limit;
+    const sortDir = query.sort === BlogPostSort.OLDEST ? 'ASC' : 'DESC';
+
+    // Build WHERE conditions
+    const conditions: string[] = ['bp."deletedAt" IS NULL'];
+    const params: any[] = [];
+    let paramIdx = 1;
+
+    if (query.status) {
+      conditions.push(`bp."status" = $${paramIdx++}::text::"ContentStatus"`);
+      params.push(query.status);
+    }
+
+    const search = query.search?.trim();
+    if (search) {
+      conditions.push(
+        `(bp."title" ILIKE $${paramIdx} OR bp."slug" ILIKE $${paramIdx} OR bp."excerpt" ILIKE $${paramIdx})`,
+      );
+      params.push(`%${search}%`);
+      paramIdx++;
+    }
+
+    if (query.categorySlug?.trim()) {
+      conditions.push(
+        `EXISTS (SELECT 1 FROM blog_post_categories bpc JOIN blog_categories bc ON bc.id = bpc."categoryId" WHERE bpc."postId" = bp.id AND bc.slug = $${paramIdx} AND bc."deletedAt" IS NULL)`,
+      );
+      params.push(query.categorySlug.trim());
+      paramIdx++;
+    }
+
+    if (query.tagSlug?.trim()) {
+      conditions.push(
+        `EXISTS (SELECT 1 FROM blog_post_tags bpt JOIN tags t ON t.id = bpt."tagId" WHERE bpt."postId" = bp.id AND t.slug = $${paramIdx} AND t."deletedAt" IS NULL AND t.type IN ('BLOG','BOTH'))`,
+      );
+      params.push(query.tagSlug.trim());
+      paramIdx++;
+    }
+
+    const whereClause = conditions.join(' AND ');
+
+    // Single query: data + count + author + coverMedia + categories + SEO via subqueries
+    const sql = `
+      SELECT
+        bp.id,
+        bp.title,
+        bp.slug,
+        bp.status,
+        bp."publishedAt",
+        bp."updatedAt",
+        -- author as JSON
+        CASE WHEN u.id IS NOT NULL THEN jsonb_build_object('fullName', u."fullName", 'email', u.email) ELSE NULL END AS author,
+        -- coverMedia as JSON
+        CASE WHEN m.id IS NOT NULL THEN jsonb_build_object('id', m.id, 'url', m.url, 'secureUrl', m."secureUrl", 'altText', m."altText") ELSE NULL END AS "coverMedia",
+        -- categories as JSON array
+        COALESCE(
+          (SELECT jsonb_agg(jsonb_build_object('name', bc.name))
+           FROM blog_post_categories bpc
+           JOIN blog_categories bc ON bc.id = bpc."categoryId"
+           WHERE bpc."postId" = bp.id),
+          '[]'::jsonb
+        ) AS categories,
+        -- SEO score
+        sm."seoScore" AS "seoScore",
+        -- total count via window function
+        COUNT(*) OVER() AS "totalCount"
+      FROM blog_posts bp
+      LEFT JOIN users u ON u.id = bp."authorId"
+      LEFT JOIN media m ON m.id = bp."coverMediaId"
+      LEFT JOIN seo_metadata sm ON sm."entityId" = bp.id AND sm."entityType" = 'BLOG_POST'
+      WHERE ${whereClause}
+      ORDER BY bp."publishedAt" ${sortDir} ${sortDir === 'DESC' ? 'NULLS FIRST' : 'NULLS LAST'}, bp."createdAt" ${sortDir}
+      LIMIT $${paramIdx++} OFFSET $${paramIdx++}
+    `;
+    params.push(limit, offset);
+
+    const rows: any[] = await this.prisma.$queryRawUnsafe(sql, ...params);
+    const t1 = Date.now();
+
+    const total = rows.length > 0 ? Number(rows[0].totalCount) : 0;
+
+    console.log(
+      `[blog-posts] listAdmin: sql=${t1 - t0}ms, total=${t1 - t0}ms (${rows.length} posts, 1 query)`,
+    );
 
     return {
-      data: posts.map((post) => this.toPost(post)),
+      data: rows.map((row) => ({
+        id: row.id,
+        title: row.title,
+        slug: row.slug,
+        status: row.status,
+        publishedAt: row.publishedAt?.toISOString() ?? null,
+        updatedAt: row.updatedAt?.toISOString() ?? null,
+        author: row.author ?? null,
+        coverMedia: row.coverMedia ?? null,
+        categories: row.categories ?? [],
+        seo: row.seoScore != null ? { seoScore: row.seoScore } : null,
+      })),
       pagination: this.toPagination(page, limit, total),
     };
   }
@@ -471,6 +555,21 @@ export class BlogPostsService {
     return [{ publishedAt: 'desc' }, { createdAt: 'desc' }];
   }
 
+  /** Slim include for list pages — no tags join */
+  private postListInclude(): Prisma.BlogPostInclude {
+    return {
+      coverMedia: {
+        select: { id: true, url: true, secureUrl: true, altText: true },
+      },
+      author: { select: { fullName: true, email: true } },
+      categories: {
+        include: {
+          category: { select: { name: true } },
+        },
+      },
+    };
+  }
+
   private postInclude(): Prisma.BlogPostInclude {
     return {
       coverMedia: {
@@ -527,6 +626,28 @@ export class BlogPostsService {
       categories: post.categories.map((item: any) => item.category),
       tags: post.tags.map((item: any) => item.tag),
       seo,
+    };
+  }
+
+  /** Lightweight version for list pages — only fields shown in blog list table */
+  private toPostSummary(post: any, seo?: unknown) {
+    return {
+      id: post.id,
+      title: post.title,
+      slug: post.slug,
+      coverMedia: post.coverMedia ?? null,
+      status: post.status,
+      author: post.author
+        ? { fullName: post.author.fullName, email: post.author.email }
+        : null,
+      publishedAt: post.publishedAt,
+      updatedAt: post.updatedAt,
+      categories: post.categories.map((item: any) => ({
+        name: item.category.name,
+      })),
+      seo: seo
+        ? { seoScore: (seo as any).seoScore ?? null }
+        : null,
     };
   }
 }
