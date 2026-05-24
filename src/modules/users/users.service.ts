@@ -13,6 +13,8 @@ import { PrismaService } from '../../database/prisma.service';
 import { AssignAdminUserRolesDto } from './dto/assign-admin-user-roles.dto';
 import { ListAdminUsersQueryDto } from './dto/list-admin-users-query.dto';
 import { UpdateAdminUserDto } from './dto/update-admin-user.dto';
+import { CreateAdminUserDto } from './dto/create-admin-user.dto';
+import * as bcrypt from 'bcryptjs';
 
 type AdminUserWithRoles = NonNullable<
   Awaited<ReturnType<UsersService['findUserById']>>
@@ -72,6 +74,67 @@ export class UsersService {
         permissionsCount: role._count.permissions,
       })),
     };
+  }
+
+  async create(createDto: CreateAdminUserDto) {
+    const email = createDto.email.trim().toLowerCase();
+    const existing = await this.prisma.user.findFirst({
+      where: { email, deletedAt: null },
+    });
+    if (existing) {
+      throw new ConflictException('Email is already used');
+    }
+
+    if (createDto.phone) {
+      const existingPhone = await this.prisma.user.findFirst({
+        where: { phone: createDto.phone.trim(), deletedAt: null },
+      });
+      if (existingPhone) {
+        throw new ConflictException('Phone is already used');
+      }
+    }
+
+    const passwordHash = await bcrypt.hash(createDto.password, 12);
+
+    let roleId: string | undefined;
+    if (createDto.role) {
+      const role = await this.prisma.role.findFirst({
+        where: { name: createDto.role.trim().toUpperCase() },
+      });
+      if (role) {
+        roleId = role.id;
+      }
+    }
+
+    const user = await this.prisma.user.create({
+      data: {
+        email,
+        fullName: createDto.fullName.trim(),
+        passwordHash,
+        phone: createDto.phone?.trim() || null,
+        status: createDto.isActive === false ? UserStatus.LOCKED : UserStatus.ACTIVE,
+        roles: roleId
+          ? {
+              create: {
+                roleId,
+              },
+            }
+          : undefined,
+      },
+      include: this.userInclude(),
+    });
+
+    return this.toAdminUser(user);
+  }
+
+  async delete(id: string) {
+    await this.getUserOrThrow(id);
+    const user = await this.prisma.user.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+      include: this.userInclude(),
+    });
+    return this.toAdminUser(user);
   }
 
   async getById(id: string) {

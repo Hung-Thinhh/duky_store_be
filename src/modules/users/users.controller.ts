@@ -6,6 +6,8 @@ import {
   Patch,
   Query,
   UseGuards,
+  Post,
+  Delete,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -21,6 +23,7 @@ import type { AuthUser } from '../auth/types/auth-user.type';
 import { AssignAdminUserRolesDto } from './dto/assign-admin-user-roles.dto';
 import { ListAdminUsersQueryDto } from './dto/list-admin-users-query.dto';
 import { UpdateAdminUserDto } from './dto/update-admin-user.dto';
+import { CreateAdminUserDto } from './dto/create-admin-user.dto';
 import { UsersService } from './users.service';
 
 @ApiTags('Admin Users')
@@ -83,5 +86,20 @@ export class UsersController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.usersService.assignRoles(id, assignRolesDto, user.id);
+  }
+
+  @Post()
+  @Roles('SUPER_ADMIN')
+  @ApiOperation({ summary: 'Create admin user' })
+  create(@Body() createDto: CreateAdminUserDto) {
+    return this.usersService.create(createDto);
+  }
+
+  @Delete(':id')
+  @Roles('SUPER_ADMIN')
+  @ApiOperation({ summary: 'Delete admin user' })
+  @ApiParam({ name: 'id' })
+  delete(@Param('id') id: string) {
+    return this.usersService.delete(id);
   }
 }
