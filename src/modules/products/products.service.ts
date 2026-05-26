@@ -296,7 +296,7 @@ export class ProductsService {
     const limit = query.limit ?? 20;
     const where = this.buildPublicWhere(query);
 
-    const [total, products] = await this.prisma.$transaction([
+    const [total, products] = await Promise.all([
       this.prisma.product.count({ where }),
       this.prisma.product.findMany({
         where,
@@ -1645,6 +1645,36 @@ export class ProductsService {
           { sortOrder: 'asc' },
           { createdAt: 'asc' },
         ],
+      },
+      variants: {
+        where: { isActive: true, deletedAt: null },
+        select: {
+          id: true,
+          productId: true,
+          name: true,
+          sku: true,
+          sizeLabel: true,
+          sizeGender: true,
+          colorName: true,
+          colorHex: true,
+          price: true,
+          salePrice: true,
+          isActive: true,
+          sortOrder: true,
+          createdAt: true,
+          updatedAt: true,
+          inventory: {
+            select: {
+              id: true,
+              quantity: true,
+              reservedQuantity: true,
+              lowStockThreshold: true,
+              soldOut: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          },
+        },
       },
     };
 
