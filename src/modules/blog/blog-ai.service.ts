@@ -1,4 +1,4 @@
-﻿import {
+import {
   BadGatewayException,
   BadRequestException,
   Injectable,
@@ -34,7 +34,7 @@ export class BlogAiService {
     const content = await this.completeJson(
       this.buildSystemPrompt(),
       this.buildUserPrompt(enrichedInput),
-      0.4,
+      0.65,
     );
 
     return this.parseAssistantJson(content);
@@ -44,7 +44,7 @@ export class BlogAiService {
     const content = await this.completeJson(
       this.buildBlockSystemPrompt(),
       this.buildBlockUserPrompt(input),
-      0.3,
+      0.6,
     );
     const parsed = this.parseAssistantJson(content) as Record<string, unknown>;
     const answer = typeof parsed.answer === 'string' ? parsed.answer.trim() : '';
@@ -118,15 +118,18 @@ export class BlogAiService {
 
   private buildSystemPrompt() {
     return [
-      'Báº¡n lÃ  trá»£ lÃ½ viáº¿t blog SEO cho Duky Store, chuyÃªn giÃ y boot, Ã¡o khoÃ¡c da, phá»¥ kiá»‡n thá»i trang da.',
-      'Viáº¿t tiáº¿ng Viá»‡t tá»± nhiÃªn, cÃ³ tÃ­nh tÆ° váº¥n bÃ¡n hÃ ng nháº¹, khÃ´ng phÃ³ng Ä‘áº¡i, khÃ´ng bá»‹a thÃ´ng tin ká»¹ thuáº­t.',
-      'Chá»‰ tráº£ vá» JSON há»£p lá»‡, khÃ´ng markdown, khÃ´ng giáº£i thÃ­ch ngoÃ i JSON.',
-      'HTML content chá»‰ dÃ¹ng cÃ¡c tháº» an toÃ n: p, h2, h3, ul, ol, li, strong, em, a, blockquote, table, thead, tbody, tr, th, td, img, hr.',
-      'KhÃ´ng táº¡o h1 trong content vÃ¬ giao diá»‡n Ä‘Ã£ cÃ³ h1 riÃªng.',
-      'Metadata SEO Ä‘Æ°á»£c frontend tá»± sinh tá»« title/excerpt/content; chá»‰ tráº£ seo khi task yÃªu cáº§u gá»£i Ã½ tá»« khÃ³a.',
+      'Bạn là trợ lý viết blog SEO chuyên nghiệp của Duky Store, chuyên giày boot, áo khoác da, và phụ kiện thời trang da.',
+      'Viết tiếng Việt tự nhiên, hiện đại, lôi cuốn, có tính tư vấn bán hàng nhẹ nhàng, không phóng đại và không bịa thông tin kỹ thuật.',
+      'TRÁNH SÁO RỖNG & RẬP KHUÔN (AI CLICHES): Tuyệt đối KHÔNG sử dụng các từ đệm, cụm từ sáo rỗng quen thuộc của AI ở đầu câu hoặc đầu đoạn như: "Thật vậy,", "Không thể phủ nhận,", "Trong thế giới thời trang,", "Hơn cả một...", "Bên cạnh đó,", "Đặc biệt,", "Đáng chú ý,".',
+      'CÁ NHÂN HÓA NỘI DUNG: Đứng dưới góc nhìn của một chuyên gia thời trang thực tế tại Duky Store để chia sẻ trải nghiệm chân thực. Cố gắng đa dạng hóa các cấu trúc ngữ pháp và cách chuyển ý mềm mại, tránh việc lặp đi lặp lại một mô-típ.',
+      'ĐỘC NHẤT 100%: Sử dụng tối đa các thông tin thực tế được cung cấp trong ngữ cảnh để tạo ra nội dung mang màu sắc thương hiệu riêng biệt, tránh viết các bài lý thuyết chung chung nhàm chán.',
+      'Chỉ trả về JSON hợp lệ, không markdown, không giải thích ngoài JSON.',
+      'HTML content chỉ dùng các thẻ an toàn: p, h2, h3, ul, ol, li, strong, em, a, blockquote, table, thead, tbody, tr, th, td, img, hr.',
+      'Không tạo h1 trong content vì giao diện đã có h1 riêng.',
+      'Metadata SEO được frontend tự sinh từ title/excerpt/content; chỉ trả seo khi task yêu cầu gợi ý từ khóa.',
       'If context.extraContext.needsTitle or needsExcerpt is true, always return the missing title/excerpt fields even when the selected task normally avoids them.',
-      'Náº¿u gá»£i Ã½ internal link, chá»‰ dÃ¹ng URL/product/blog Ä‘Æ°á»£c cung cáº¥p trong context.',
-      'Náº¿u chá»n áº£nh, chá»‰ chá»n mediaId cÃ³ tháº­t trong context.extraContext.mediaLibrary, khÃ´ng tá»± bá»‹a mediaId hoáº·c URL.',
+      'Nếu gợi ý internal link, chỉ dùng URL/product/blog được cung cấp trong context.',
+      'Nếu chọn ảnh, chỉ chọn mediaId có thật trong context.extraContext.mediaLibrary, không tự bịa mediaId hoặc URL.',
     ].join('\n');
   }
 
@@ -210,6 +213,7 @@ export class BlogAiService {
     return [
       'You are an inline blog editor assistant for Duky Store.',
       'Always answer the admin in Vietnamese.',
+      'AVOID AI CLICHES: Do not use generic AI transition phrases or robotic sentences like "Thật vậy,", "Không thể phủ nhận,", "Hơn cả một...", "Trong thế giới thời trang...". Keep the style fresh, expert, dynamic, and natural.',
       'Return valid JSON only. Do not return markdown fences or text outside JSON.',
       'Output contract: {"answer":"string","replacementHtml":"string | null"}.',
       'Use replacementHtml only when the instruction requests creating, rewriting, shortening, expanding, correcting, or improving the current block.',
