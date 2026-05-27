@@ -125,6 +125,10 @@ export class MediaService {
   async createLocal(file: UploadedMediaFile, uploadedById: string, baseUrl: string, metadata?: UploadMediaMetadataDto) {
     this.assertUploadFile(file);
 
+    if (file.originalname) {
+      file.originalname = Buffer.from(file.originalname, 'latin1').toString('utf8');
+    }
+
     // Extract image dimensions (width/height)
     const dimensions = await this.extractDimensions(file.buffer);
 
