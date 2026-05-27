@@ -13,6 +13,7 @@ import { CustomersModule } from './modules/customers/customers.module';
 import { HomepageModule } from './modules/homepage/homepage.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
 import { MediaModule } from './modules/media/media.module';
+import { GalleryModule } from './modules/gallery/gallery.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { ProductVariantsModule } from './modules/product-variants/product-variants.module';
@@ -45,6 +46,7 @@ import { UsersModule } from './modules/users/users.module';
     CategoriesModule,
     TagsModule,
     MediaModule,
+    GalleryModule,
     ProductsModule,
     SeoModule,
     ProductAttributesModule,

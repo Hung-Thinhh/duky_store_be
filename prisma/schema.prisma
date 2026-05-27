@@ -302,6 +302,7 @@ model User {
   passwordResets PasswordResetToken[]
   loginHistories LoginHistory[]
   uploadedMedia  Media[]              @relation("MediaUploadedBy")
+  galleryImagesUploaded GalleryImage[] @relation("GalleryImageUploadedBy")
   productCreated Product[]            @relation("ProductCreatedBy")
   productUpdated Product[]            @relation("ProductUpdatedBy")
   blogPosts      BlogPost[]           @relation("BlogPostAuthor")
@@ -492,6 +493,36 @@ model MediaAiIndex {
 
   @@index([indexedAt])
   @@map("media_ai_index")
+}
+
+model GalleryImage {
+  id           String        @id @default(cuid())
+  provider     MediaProvider @default(LOCAL)
+  providerKey  String?
+  url          String
+  secureUrl    String?
+  fileName     String
+  originalName String?
+  mimeType     String
+  size         Int?
+  width        Int?
+  height       Int?
+  folder       String?
+  altText      String?
+  title        String?
+  metadata     Json?
+  forMale      Boolean?
+  uploadedById String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  deletedAt    DateTime?
+
+  uploadedBy   User?         @relation("GalleryImageUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@index([provider])
+  @@index([uploadedById])
+  @@index([folder])
+  @@map("gallery_img")
 }
 
 model Product {
