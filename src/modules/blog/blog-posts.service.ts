@@ -142,7 +142,7 @@ export class BlogPostsService {
       this.prisma.blogPost.count({ where }),
       this.prisma.blogPost.findMany({
         where,
-        include: this.postInclude(),
+        select: this.postListSelect(),
         orderBy: this.getOrderBy(query.sort),
         skip: (page - 1) * limit,
         take: limit,
@@ -570,6 +570,42 @@ export class BlogPostsService {
     };
   }
 
+  private postListSelect(): Prisma.BlogPostSelect {
+    return {
+      id: true,
+      title: true,
+      slug: true,
+      excerpt: true,
+      coverMediaId: true,
+      status: true,
+      authorId: true,
+      publishedAt: true,
+      createdAt: true,
+      updatedAt: true,
+      coverMedia: {
+        select: {
+          id: true,
+          url: true,
+          secureUrl: true,
+          fileName: true,
+          altText: true,
+          title: true,
+        },
+      },
+      author: { select: { id: true, fullName: true, email: true } },
+      categories: {
+        include: {
+          category: { select: { id: true, name: true, slug: true, status: true } },
+        },
+      },
+      tags: {
+        include: {
+          tag: { select: { id: true, name: true, slug: true, type: true } },
+        },
+      },
+    };
+  }
+
   private postInclude(): Prisma.BlogPostInclude {
     return {
       coverMedia: {
@@ -614,7 +650,7 @@ export class BlogPostsService {
       title: post.title,
       slug: post.slug,
       excerpt: post.excerpt,
-      content: post.content,
+      content: post.content ?? null,
       coverMediaId: post.coverMediaId,
       coverMedia: post.coverMedia,
       status: post.status,
@@ -623,8 +659,8 @@ export class BlogPostsService {
       publishedAt: post.publishedAt,
       createdAt: post.createdAt,
       updatedAt: post.updatedAt,
-      categories: post.categories.map((item: any) => item.category),
-      tags: post.tags.map((item: any) => item.tag),
+      categories: (post.categories ?? []).map((item: any) => item.category),
+      tags: (post.tags ?? []).map((item: any) => item.tag),
       seo,
     };
   }

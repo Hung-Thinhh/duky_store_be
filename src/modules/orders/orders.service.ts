@@ -35,7 +35,7 @@ export class OrdersService {
       this.prisma.order.count({ where }),
       this.prisma.order.findMany({
         where,
-        include: this.orderInclude(),
+        include: this.orderListInclude(),
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
@@ -523,6 +523,30 @@ export class OrdersService {
     };
   }
 
+  private orderListInclude() {
+    return {
+      items: {
+        include: {
+          variant: {
+            select: {
+              id: true,
+              name: true,
+              sku: true,
+              sizeLabel: true,
+              colorName: true,
+              colorHex: true,
+            },
+          },
+        },
+      },
+      payments: {
+        select: {
+          method: true,
+        },
+      },
+    };
+  }
+
   private assertStatusTransition(from: OrderStatus, to: OrderStatus) {
     if (from === OrderStatus.CANCELLED || from === OrderStatus.REFUNDED) {
       throw new BadRequestException(`Cannot update ${from} order`);
@@ -638,12 +662,8 @@ export class OrdersService {
     throw new BadRequestException('Could not generate order code');
   }
 
-  private toAdminOrder(
-    order: Prisma.OrderGetPayload<{
-      include: ReturnType<OrdersService['orderInclude']>;
-    }>,
-  ) {
-    const payment = order.payments[0];
+  private toAdminOrder(order: any) {
+    const payment = order.payments?.[0];
     const shippingAddress = order.shippingAddress;
 
     return {
@@ -670,7 +690,7 @@ export class OrdersService {
       shippingNote: shippingAddress?.note ?? null,
       internalNote: order.internalNote,
       source: order.source,
-      items: order.items.map((item) => ({
+      items: (order.items ?? []).map((item: any) => ({
         id: item.id,
         productId: item.productId ?? '',
         productName: item.productName,

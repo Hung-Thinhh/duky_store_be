@@ -71,49 +71,69 @@ export class BlogAiService {
       || 'gx/gpt-5.5';
     const endpoint = `${baseUrl.replace(/\/+$/g, '')}/chat/completions`;
 
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model,
-        temperature,
-        messages: [
-          {
-            role: 'system',
-            content: systemPrompt,
-          },
-          {
-            role: 'user',
-            content: userPrompt,
-          },
-        ],
-      }),
-    });
+    // 1. Thêm Timeout 90s (1 phút 30 giây)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 90000);
 
-    const text = await response.text();
-
-    if (!response.ok) {
-      this.logger.error(`Blog AI failed ${response.status}: ${text.slice(0, 500)}`);
-      throw new BadGatewayException('Blog AI provider request failed');
-    }
-
-    let completion: ChatCompletionResponse;
     try {
-      completion = JSON.parse(text) as ChatCompletionResponse;
-    } catch {
-      this.logger.error(`Blog AI returned invalid provider JSON: ${text.slice(0, 500)}`);
-      throw new BadGatewayException('Blog AI provider returned invalid JSON');
-    }
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model,
+          temperature,
+          // 3. Bật JSON Mode để ép model trả về chuẩn JSON
+          response_format: { type: 'json_object' },
+          messages: [
+            {
+              role: 'system',
+              content: systemPrompt,
+            },
+            {
+              role: 'user',
+              content: userPrompt,
+            },
+          ],
+        }),
+      });
 
-    const content = completion.choices?.[0]?.message?.content;
-    if (!content) {
-      throw new BadGatewayException('Blog AI provider returned an empty response');
-    }
+      clearTimeout(timeoutId);
 
-    return content;
+      const text = await response.text();
+
+      if (!response.ok) {
+        this.logger.error(`Blog AI failed ${response.status}: ${text.slice(0, 500)}`);
+        throw new BadGatewayException('Blog AI provider request failed');
+      }
+
+      let completion: ChatCompletionResponse;
+      try {
+        completion = JSON.parse(text) as ChatCompletionResponse;
+      } catch {
+        this.logger.error(`Blog AI returned invalid provider JSON: ${text.slice(0, 500)}`);
+        throw new BadGatewayException('Blog AI provider returned invalid JSON');
+      }
+
+      const content = completion.choices?.[0]?.message?.content;
+      if (!content) {
+        throw new BadGatewayException('Blog AI provider returned an empty response');
+      }
+
+      return content;
+    } catch (error: any) {
+      clearTimeout(timeoutId);
+      
+      // Xử lý riêng lỗi do quá thời gian Timeout
+      if (error.name === 'AbortError') {
+        this.logger.error('Blog AI request timed out sau 90 giây');
+        throw new BadGatewayException('Blog AI bị gián đoạn do phản hồi quá 90 giây');
+      }
+      throw error;
+    }
   }
 
   private buildSystemPrompt() {
@@ -178,7 +198,7 @@ export class BlogAiService {
         contentHtml: this.truncate(input.content || '', 16000),
         focusKeyword: input.focusKeyword || '',
         articleType: input.articleType || '',
-        tone: input.tone || 'tÆ° váº¥n thÃ¢n thiá»‡n, chuyÃªn nghiá»‡p',
+        tone: input.tone || 'tư vấn thân thiện, chuyên nghiệp',
       },
       context: {
         categories: input.categories ?? [],
@@ -211,19 +231,30 @@ export class BlogAiService {
 
   private buildBlockSystemPrompt() {
     return [
-      'You are an inline blog editor assistant for Duky Store.',
-      'Always answer the admin in Vietnamese.',
-      'AVOID AI CLICHES: Do not use generic AI transition phrases or robotic sentences like "Thật vậy,", "Không thể phủ nhận,", "Hơn cả một...", "Trong thế giới thời trang...". Keep the style fresh, expert, dynamic, and natural.',
-      'Return valid JSON only. Do not return markdown fences or text outside JSON.',
+      'Bạn là trợ lý chỉnh sửa nội dung blog trực tiếp (inline) cho Duky Store.',
+      'Luôn trả lời bằng tiếng Việt.',
+      'TRÁNH SÁO RỖNG & RẬP KHUÔN (AI CLICHES): Không sử dụng các từ đệm, cụm từ sáo rỗng quen thuộc của AI như: "Thật vậy,", "Không thể phủ nhận,", "Hơn cả một...", "Trong thế giới thời trang...". Giữ văn phong tươi mới, chuyên nghiệp, năng động và tự nhiên.',
+      'Chỉ trả về JSON hợp lệ. Không trả về markdown fences hoặc văn bản nằm ngoài JSON.',
+      'Cấu trúc đầu ra (Output contract): {"answer":"string","replacementHtml":"string | null"}.',
+      'Chỉ sử dụng replacementHtml khi yêu cầu tạo mới, viết lại, rút ngắn, mở rộng, sửa lỗi hoặc cải thiện khối văn bản hiện tại.',
+      'Nếu yêu cầu chỉ là giải thích, đánh giá hoặc tóm tắt để đọc, hãy đặt replacementHtml thành null trừ khi người dùng yêu cầu thay thế một cách rõ ràng.',
+      'Khi trả về replacementHtml, chỉ trả về mã HTML bên trong cho khối văn bản này, không bao bọc bởi blockquote và không viết thành cả một bài viết hoàn chỉnh.',
+      'Các thẻ HTML được phép sử dụng: p, h1, h2, h3, ul, ol, li, strong, em, a, blockquote, table, thead, tbody, tr, th, td, img, hr.',
+      'Không bịa đặt thông số kỹ thuật sản phẩm, giá cả, chương trình khuyến mãi, URL hoặc URL hình ảnh.',
+      'Chỉ sử dụng dàn ý bài viết và các khối văn bản liền kề để giữ cho khối văn bản đang chỉnh sửa thống nhất với mạch văn bản xung quanh.',
+      'You are an inline blog content editor assistant for Duky Store.',
+      'Always respond in Vietnamese.',
+      'AVOID CLICHES: Do not use common AI filler phrases like "Thật vậy,", "Không thể phủ nhận,", "Hơn cả một...", "Trong thế giới thời trang...". Keep the tone fresh, professional, dynamic, and natural.',
+      'Return only valid JSON. Do not return markdown fences or text outside the JSON.',
       'Output contract: {"answer":"string","replacementHtml":"string | null"}.',
-      'Use replacementHtml only when the instruction requests creating, rewriting, shortening, expanding, correcting, or improving the current block.',
-      'If the instruction asks for an explanation, assessment, or summary to read only, set replacementHtml to null unless the admin explicitly requests replacement.',
-      'When replacementHtml is present, return only the inner HTML for this one block, not a blockquote wrapper and not a complete article.',
-      'Allowed HTML tags are p, h1, h2, h3, ul, ol, li, strong, em, a, blockquote, table, thead, tbody, tr, th, td, img, hr.',
-      'Do not invent product specifications, prices, promotions, URLs, or media URLs.',
-      'Use the article outline and adjacent blocks only to keep the edited block consistent with the surrounding flow.',
-      'If a focus keyword is supplied, it is locked by the admin: do not create or replace it. Preserve it naturally when it already occurs in the current block.',
-      'If SEO failed checks are supplied and the admin asks for SEO improvement, address only checks that can be improved within this block. Do not claim an exact final score.',
+      'Use replacementHtml only when requested to create, rewrite, shorten, expand, fix errors, or improve the current block.',
+      'If the request is only for explanation, evaluation, or summary, set replacementHtml to null unless explicitly requested to replace.',
+      'When returning replacementHtml, provide only the inner HTML code for the block, do not wrap in blockquote and do not write a full article.',
+      'Allowed HTML tags: p, h1, h2, h3, ul, ol, li, strong, em, a, blockquote, table, thead, tbody, tr, th, td, img, hr.',
+      'Do not fabricate product specs, pricing, promotions, URLs, or image URLs.',
+      'Use the article outline and adjacent blocks to keep the edited block consistent with the surrounding context.',
+      'If there is a focus keyword, it has been decided by the admin: do not create or replace it. Keep it naturally if it already appears in the current block.',
+      'If there are failed SEO checks and the user requests optimization, only resolve those improvable in this block. Do not provide an exact final score.',
     ].join('\n');
   }
 
@@ -256,23 +287,23 @@ export class BlogAiService {
 
     switch (input.task) {
       case BlogAiTask.FULL_DRAFT:
-        return 'Táº¡o gÃ³i bÃ i blog nhÃ¡p hoÃ n chá»‰nh tá»« dá»¯ liá»‡u hiá»‡n cÃ³: title, excerpt, contentHtml chuáº©n SEO cÃ³ h2/h3, FAQ, CTA nháº¹, internal links, alt áº£nh náº¿u cÃ³. KhÃ´ng cáº§n táº¡o SEO metadata vÃ¬ frontend sáº½ tá»± sinh. Náº¿u article.focusKeyword cÃ³ sáºµn, pháº£i dá»±a vÃ o key Ä‘Ã³, khÃ´ng táº¡o key má»›i. Náº¿u context.extraContext.mediaLibrary cÃ³ áº£nh, hÃ£y chá»n áº£nh phÃ¹ há»£p cho selectedMedia.coverMediaId, selectedMedia.ogImageMediaId vÃ  1-3 inlineImages theo tá»«ng H2.';
+        return 'Tạo gói bài blog nháp hoàn chỉnh từ dữ liệu hiện có: title, excerpt, contentHtml chuẩn SEO có h2/h3, FAQ, CTA nhẹ, internal links, alt ảnh nếu có. Không cần tạo SEO metadata vì frontend sẽ tự sinh. Nếu article.focusKeyword có sẵn, phải dựa vào key đó, không tạo key mới. Nếu context.extraContext.mediaLibrary có ảnh, hãy chọn ảnh phù hợp cho selectedMedia.coverMediaId, selectedMedia.ogImageMediaId và 1-3 inlineImages theo từng H2.';
       case BlogAiTask.SEO:
         if (isKeywordSuggestion) {
-          return 'Chá»‰ gá»£i Ã½ tá»« khÃ³a SEO. Tráº£ seo.focusKeyword dáº¡ng danh sÃ¡ch ngáº¯n cÃ¡ch báº±ng dáº¥u pháº©y; khÃ´ng cáº§n tráº£ contentHtml, selectedMedia hay metadata khÃ¡c.';
+          return 'Chỉ gợi ý từ khóa SEO. Trả seo.focusKeyword dạng danh sách ngắn cách bằng dấu phẩy; không cần trả contentHtml, selectedMedia hay metadata khác.';
         }
 
         return [
-          'Tá»‘i Æ°u SEO lÃ  task sá»­a Ä‘iá»ƒm SEO, khÃ´ng pháº£i task rewrite bÃ i.',
-          'Chá»‰ tráº£ summary, contentHtml náº¿u cáº§n, internalLinks, imageAlts, selectedMedia vÃ  improvements.',
-          'KhÃ´ng tráº£ title, slug, excerpt, outline, faqs hoáº·c SEO metadata cho task nÃ y.',
-          'Má»¥c tiÃªu lÃ  Ä‘Æ°a Ä‘iá»ƒm SEO dashboard lÃªn tá»‘i thiá»ƒu 80/100 náº¿u ná»™i dung Ä‘á»§ dá»¯ liá»‡u.',
-          'KhÃ´ng táº¡o hoáº·c sá»­a SEO metadata; frontend sáº½ tá»± sinh metaTitle/metaDescription/OG/Twitter/canonical.',
-          'Náº¿u article.focusKeyword cÃ³ sáºµn, pháº£i dá»±a vÃ o key Ä‘Ã³, khÃ´ng táº¡o key má»›i vÃ  khÃ´ng tráº£ seo.focusKeyword khÃ¡c.',
-          'Náº¿u extraContext.seoAnalysis.failedChecks cÃ³ dá»¯ liá»‡u, chá»‰ sá»­a Ä‘Ãºng cÃ¡c check Ä‘ang fail trong contentHtml: keyword trong intro/H2/content/alt, internal link, media, Ä‘á»™ dÃ i, density, readability.',
-          'Giá»¯ Ã½ chÃ­nh, title, slug, excerpt vÃ  giá»ng bÃ i cÅ©; khÃ´ng viáº¿t láº¡i toÃ n bá»™ náº¿u khÃ´ng cáº§n.',
-          'Náº¿u context.extraContext.mediaLibrary cÃ³ áº£nh, hÃ£y chá»n áº£nh phÃ¹ há»£p cho cover/OG vÃ  1-3 inlineImages; alt áº£nh nÃªn chá»©a focus keyword tá»± nhiÃªn.',
-          'Náº¿u ná»™i dung Ä‘Ã£ Ä‘áº¡t SEO, contentHtml cÃ³ thá»ƒ null; improvements pháº£i nÃ³i rÃµ check nÃ o Ä‘Ã£ Ä‘áº¡t/chÆ°a cáº§n sá»­a.',
+          'Tối ưu SEO là task sửa điểm SEO, không phải task rewrite bài.',
+          'Chỉ trả summary, contentHtml nếu cần, internalLinks, imageAlts, selectedMedia và improvements.',
+          'Không trả title, slug, excerpt, outline, faqs hoặc SEO metadata cho task này.',
+          'Mục tiêu là đưa điểm SEO dashboard lên tối thiểu 80/100 nếu nội dung đủ dữ liệu.',
+          'Không tạo hoặc sửa SEO metadata; frontend sẽ tự sinh metaTitle/metaDescription/OG/Twitter/canonical.',
+          'Nếu article.focusKeyword có sẵn, phải dựa vào key đó, không tạo key mới và không trả seo.focusKeyword khác.',
+          'Nếu extraContext.seoAnalysis.failedChecks có dữ liệu, chỉ sửa đúng các check đang fail trong contentHtml: keyword trong intro/H2/content/alt, internal link, media, độ dài, density, readability.',
+          'Giữ ý chính, title, slug, excerpt và giọng bài cũ; không viết lại toàn bộ nếu không cần.',
+          'Nếu context.extraContext.mediaLibrary có ảnh, hãy chọn ảnh phù hợp cho cover/OG và 1-3 inlineImages; alt ảnh nên chứa focus keyword tự nhiên.',
+          'Nếu nội dung đã đạt SEO, contentHtml có thể null; improvements phải nói rõ check nào đã đạt/chưa cần sửa.',
         ].join(' ');
       case BlogAiTask.OUTLINE:
         return [
@@ -283,13 +314,13 @@ export class BlogAiService {
           'Không trả đoạn văn dài, không tạo CTA, không tạo nội dung HTML đầy đủ.',
         ].join(' ');
       case BlogAiTask.OPTIMIZE:
-        return 'Tá»‘i Æ°u bÃ i hiá»‡n táº¡i lÃ  task nÃ¢ng cháº¥t lÆ°á»£ng bÃ i cho ngÆ°á»i Ä‘á»c vÃ  chuyá»ƒn Ä‘á»•i, khÃ´ng pháº£i chá»‰ sá»­a Ä‘iá»ƒm SEO. CÃ³ thá»ƒ tráº£ title, slug, excerpt náº¿u cáº§n sá»­a nháº¹; tráº£ contentHtml Ä‘Ã£ tá»‘i Æ°u flow, H2/H3, readability, CTA, báº£ng/list, Ä‘oáº¡n chuyá»ƒn Ã½, internal link vÃ  FAQ náº¿u há»£p lÃ½. KhÃ´ng cáº§n táº¡o SEO metadata vÃ¬ frontend sáº½ tá»± sinh. Náº¿u article.focusKeyword cÃ³ sáºµn, pháº£i dá»±a vÃ o key Ä‘Ã³, khÃ´ng táº¡o key má»›i. Náº¿u context.extraContext.mediaLibrary cÃ³ áº£nh, hÃ£y chá»n áº£nh phÃ¹ há»£p cho cover/OG vÃ  1-3 inlineImages; chá»‰ dÃ¹ng mediaId cÃ³ trong danh sÃ¡ch.';
+        return 'Tối ưu bài hiện tại là task nâng chất lượng bài cho người đọc và chuyển đổi, không phải chỉ sửa điểm SEO. Có thể trả title, slug, excerpt nếu cần sửa nhẹ; trả contentHtml đã tối ưu flow, H2/H3, readability, CTA, bảng/list, đoạn chuyển ý, internal link và FAQ nếu hợp lý. Không cần tạo SEO metadata vì frontend sẽ tự sinh. Nếu article.focusKeyword có sẵn, phải dựa vào key đó, không tạo key mới. Nếu context.extraContext.mediaLibrary có ảnh, hãy chọn ảnh phù hợp cho cover/OG và 1-3 inlineImages; chỉ dùng mediaId có trong danh sách.';
       case BlogAiTask.INTERNAL_LINKS:
-        return 'Gá»£i Ã½ internal link sang sáº£n pháº©m/bÃ i viáº¿t/danh má»¥c Ä‘Ã£ Ä‘Æ°á»£c cung cáº¥p. KhÃ´ng tá»± bá»‹a URL.';
+        return 'Gợi ý internal link sang sản phẩm/bài viết/danh mục đã được cung cấp. Không tự bịa URL.';
       case BlogAiTask.IMAGE_ALT:
-        return 'Gá»£i Ã½ alt text vÃ  caption cho áº£nh trong bÃ i/áº£nh Ä‘áº¡i diá»‡n, Æ°u tiÃªn mÃ´ táº£ ngáº¯n tá»± nhiÃªn cÃ³ ngá»¯ cáº£nh Duky Store.';
+        return 'Gợi ý alt text và caption cho ảnh trong bài/ảnh đại diện, ưu tiên mô tả ngắn tự nhiên có ngữ cảnh Duky Store.';
       default:
-        return 'Há»— trá»£ tá»‘i Æ°u bÃ i blog.';
+        return 'Hỗ trợ tối ưu bài blog.';
     }
   }
 
@@ -320,7 +351,7 @@ export class BlogAiService {
         mediaRetrievalMode: 'BACKEND_AI_INDEX_SEARCH',
         mediaLibrary,
         imageSelectionInstruction:
-          'Hay chon anh tu mediaLibrary da duoc backend search/rank theo noi dung bai viet. Chi tra mediaId co trong mediaLibrary. Uu tien anh co score cao va mo ta/alt/title khop ngu canh.',
+          'Hãy chọn ảnh từ mediaLibrary đã được backend search/rank theo nội dung bài viết. Chỉ trả về mediaId có trong mediaLibrary. Ưu tiên ảnh có điểm số (score) cao và mô tả/alt/title khớp với ngữ cảnh.',
       },
     };
   }
