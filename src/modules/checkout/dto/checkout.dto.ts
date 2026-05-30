@@ -15,6 +15,11 @@ export class CheckoutDto {
   @MinLength(8)
   sessionId: string;
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  customerId?: string;
+
   @ApiProperty({ example: 'Nguyen Van A' })
   @IsString()
   @MinLength(2)

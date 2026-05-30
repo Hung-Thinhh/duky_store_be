@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { GoogleLoginDto } from '../auth/dto/google-login.dto';
@@ -8,6 +8,10 @@ import { CustomerAuthService } from './customer-auth.service';
 import { CurrentCustomer } from './decorators/current-customer.decorator';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
+import { CreateAddressDto } from './dto/create-address.dto';
+import { UpdateAddressDto } from './dto/update-address.dto';
 import { CustomerJwtAuthGuard } from './guards/customer-jwt-auth.guard';
 import type { CustomerAuthUser } from './types/customer-auth-user.type';
 
@@ -69,6 +73,102 @@ export class CustomerAuthController {
   @UseGuards(CustomerJwtAuthGuard)
   me(@CurrentCustomer() customer: CustomerAuthUser) {
     return this.customerAuthService.me(customer.id);
+  }
+
+  @Patch('profile')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update customer profile' })
+  @UseGuards(CustomerJwtAuthGuard)
+  updateProfile(
+    @CurrentCustomer() customer: CustomerAuthUser,
+    @Body() updateProfileDto: UpdateProfileDto,
+  ) {
+    return this.customerAuthService.updateProfile(
+      customer.id,
+      updateProfileDto,
+    );
+  }
+
+  @Put('password')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Change customer password' })
+  @UseGuards(CustomerJwtAuthGuard)
+  changePassword(
+    @CurrentCustomer() customer: CustomerAuthUser,
+    @Body() changePasswordDto: ChangePasswordDto,
+  ) {
+    return this.customerAuthService.changePassword(
+      customer.id,
+      changePasswordDto,
+    );
+  }
+
+  @Get('addresses')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'List customer addresses' })
+  @UseGuards(CustomerJwtAuthGuard)
+  listAddresses(@CurrentCustomer() customer: CustomerAuthUser) {
+    return this.customerAuthService.listAddresses(customer.id);
+  }
+
+  @Post('addresses')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Create a new customer address' })
+  @UseGuards(CustomerJwtAuthGuard)
+  createAddress(
+    @CurrentCustomer() customer: CustomerAuthUser,
+    @Body() createAddressDto: CreateAddressDto,
+  ) {
+    return this.customerAuthService.createAddress(
+      customer.id,
+      createAddressDto,
+    );
+  }
+
+  @Patch('addresses/:id')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update customer address' })
+  @UseGuards(CustomerJwtAuthGuard)
+  updateAddress(
+    @CurrentCustomer() customer: CustomerAuthUser,
+    @Param('id') addressId: string,
+    @Body() updateAddressDto: UpdateAddressDto,
+  ) {
+    return this.customerAuthService.updateAddress(
+      customer.id,
+      addressId,
+      updateAddressDto,
+    );
+  }
+
+  @Delete('addresses/:id')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Delete customer address' })
+  @UseGuards(CustomerJwtAuthGuard)
+  deleteAddress(
+    @CurrentCustomer() customer: CustomerAuthUser,
+    @Param('id') addressId: string,
+  ) {
+    return this.customerAuthService.deleteAddress(customer.id, addressId);
+  }
+
+  @Get('orders')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'List customer orders' })
+  @UseGuards(CustomerJwtAuthGuard)
+  listOrders(@CurrentCustomer() customer: CustomerAuthUser) {
+    return this.customerAuthService.listOrders(customer.id);
+  }
+
+  @Get('orders/:code')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get customer order by code' })
+  @UseGuards(CustomerJwtAuthGuard)
+  getOrder(
+    @CurrentCustomer() customer: CustomerAuthUser,
+    @Param('code') code: string,
+  ) {
+    return this.customerAuthService.getOrder(customer.id, code);
   }
 
   private getRequestMeta(request: Request): RequestMeta {

@@ -261,6 +261,23 @@ export class CheckoutService {
   ) {
     const phone = checkoutDto.customerPhone.trim();
     const email = this.nullableTrim(checkoutDto.customerEmail);
+
+    if (checkoutDto.customerId) {
+      const existing = await tx.customer.findUnique({
+        where: { id: checkoutDto.customerId },
+      });
+      if (existing) {
+        return tx.customer.update({
+          where: { id: existing.id },
+          data: {
+            fullName: checkoutDto.customerName.trim(),
+            phone,
+            email: email || existing.email,
+          },
+        });
+      }
+    }
+
     const existing = await tx.customer.findFirst({
       where: {
         OR: [{ phone }, ...(email ? [{ email }] : [])],

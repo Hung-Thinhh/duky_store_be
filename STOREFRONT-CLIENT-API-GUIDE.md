@@ -27,7 +27,8 @@ Luong xu ly:
 1. Lay base URL tu env:
 
 ```ts
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1";
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
 ```
 
 2. Tao axios client dung chung:
@@ -35,7 +36,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1
 ```ts
 axios.create({
   baseURL: API_URL,
-  headers: { "Content-Type": "application/json" },
+  headers: { 'Content-Type': 'application/json' },
   timeout: 10000,
 });
 ```
@@ -43,7 +44,7 @@ axios.create({
 3. Request interceptor tu gan Bearer token cho route admin:
 
 ```ts
-if (config.url?.startsWith("/admin")) {
+if (config.url?.startsWith('/admin')) {
   config.headers.Authorization = `Bearer ${accessToken}`;
 }
 ```
@@ -68,7 +69,7 @@ Neu refresh thanh cong thi luu token moi va retry request cu. Neu fail thi xoa s
 6. Service layer khong return raw axios response. Moi service parse schema roi moi tra data cho UI:
 
 ```ts
-const response = await apiClient.get("/admin/products", { params });
+const response = await apiClient.get('/admin/products', { params });
 return ProductListResponseSchema.parse(response).DT;
 ```
 
@@ -276,7 +277,7 @@ type ApiResponse<T> = {
 Trong client nen co schema base bang `zod`:
 
 ```ts
-import { z } from "zod";
+import { z } from 'zod';
 
 export const BaseResponseSchema = z.object({
   EC: z.number(),
@@ -311,7 +312,7 @@ export function createPaginatedResponseSchema<T extends z.ZodTypeAny>(
 Moi service nen parse response full wrapper `{ EC, EM, DT }`:
 
 ```ts
-const response = await apiClient.get("/products", { params });
+const response = await apiClient.get('/products', { params });
 return ProductListResponseSchema.parse(response).DT;
 ```
 
@@ -333,7 +334,8 @@ product.service.ts -> fetch/axios -> zod parse -> return DT
 Dung cho cac page public can SSR/SEO:
 
 ```ts
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1";
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
 
 export async function apiFetch<T>(
   path: string,
@@ -342,7 +344,7 @@ export async function apiFetch<T>(
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
-      "Content-Type": "application/json",
+      'Content-Type': 'application/json',
       ...(options.headers ?? {}),
     },
   });
@@ -364,12 +366,12 @@ export async function listProducts(params: ListProductsParams) {
   const query = new URLSearchParams();
 
   Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== "") {
+    if (value !== undefined && value !== null && value !== '') {
       query.set(key, String(value));
     }
   });
 
-  const suffix = query.toString() ? `?${query.toString()}` : "";
+  const suffix = query.toString() ? `?${query.toString()}` : '';
   const response = await apiFetch<unknown>(`/products${suffix}`);
 
   return ProductListResponseSchema.parse(response).DT;
@@ -381,7 +383,7 @@ Khong nen de `apiFetch` return thang `DT`, vi nhu vay service khong parse duoc f
 Neu muon helper gon hon, co the truyen schema vao helper:
 
 ```ts
-import { z } from "zod";
+import { z } from 'zod';
 
 export async function apiFetchWithSchema<T>(
   path: string,
@@ -397,7 +399,7 @@ Sau do service van la noi goi schema:
 
 ```ts
 const response = await apiFetchWithSchema(
-  "/products?page=1&limit=24&sort=newest",
+  '/products?page=1&limit=24&sort=newest',
   ProductListResponseSchema,
 );
 
@@ -411,18 +413,19 @@ return response.DT;
 Dung cho request can browser session, refresh token, retry 401:
 
 ```ts
-import axios from "axios";
+import axios from 'axios';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1";
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api/v1';
 
 export const apiClient = axios.create({
   baseURL: API_URL,
-  headers: { "Content-Type": "application/json" },
+  headers: { 'Content-Type': 'application/json' },
   timeout: 10000,
 });
 
 apiClient.interceptors.request.use((config) => {
-  if (config.url?.startsWith("/customer")) {
+  if (config.url?.startsWith('/customer')) {
     const token = getCustomerAccessToken();
 
     if (token) {
@@ -445,7 +448,7 @@ apiClient.interceptors.response.use(
   async (error) => {
     // Neu 401 va khong phai auth request thi goi /customer/auth/refresh
     // Thanh cong: luu session moi, retry request cu
-    // That bai: clear session, redirect ve trang login/account
+    // That bai: clear session, redirect ve trang login/user
     return Promise.reject(error);
   },
 );
@@ -473,7 +476,7 @@ src/lib/cart/guest-session.ts
 Logic:
 
 ```ts
-const KEY = "duky_guest_session_id";
+const KEY = 'duky_guest_session_id';
 
 export function getGuestSessionId() {
   const existing = localStorage.getItem(KEY);
@@ -481,7 +484,7 @@ export function getGuestSessionId() {
   if (existing) return existing;
 
   const next =
-    typeof crypto !== "undefined" && "randomUUID" in crypto
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
@@ -510,54 +513,54 @@ await cartService.addItem({
 Product:
 
 ```ts
-productService.list(params)
-productService.getBySlug(slug)
-productService.getVariants(slug)
+productService.list(params);
+productService.getBySlug(slug);
+productService.getVariants(slug);
 ```
 
 Category:
 
 ```ts
-categoryService.list()
-categoryService.getBySlug(slug)
-categoryService.getProducts(slug, params)
+categoryService.list();
+categoryService.getBySlug(slug);
+categoryService.getProducts(slug, params);
 ```
 
 Cart:
 
 ```ts
-cartService.getCart(sessionId)
-cartService.addItem(payload)
-cartService.updateItem(itemId, payload)
-cartService.removeItem(itemId, sessionId)
-cartService.clearCart(sessionId)
+cartService.getCart(sessionId);
+cartService.addItem(payload);
+cartService.updateItem(itemId, payload);
+cartService.removeItem(itemId, sessionId);
+cartService.clearCart(sessionId);
 ```
 
 Checkout/order:
 
 ```ts
-checkoutService.checkout(payload)
-checkoutService.lookupOrder(code, phone)
+checkoutService.checkout(payload);
+checkoutService.lookupOrder(code, phone);
 ```
 
 Customer auth:
 
 ```ts
-customerAuthService.loginWithGoogle(payload)
-customerAuthService.refresh(refreshToken)
-customerAuthService.logout()
-customerAuthService.getMe()
-customerAuthService.getCustomer()
+customerAuthService.loginWithGoogle(payload);
+customerAuthService.refresh(refreshToken);
+customerAuthService.logout();
+customerAuthService.getMe();
+customerAuthService.getCustomer();
 ```
 
 Homepage/settings/blog:
 
 ```ts
-homepageService.getHomepage()
-settingsService.getPublic(params)
-blogService.list(params)
-blogService.getBySlug(slug)
-blogService.listCategories()
+homepageService.getHomepage();
+settingsService.getPublic(params);
+blogService.list(params);
+blogService.getBySlug(slug);
+blogService.listCategories();
 ```
 
 ---
