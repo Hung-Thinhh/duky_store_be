@@ -370,7 +370,12 @@ export class ProductsService {
         relations,
       );
       await this.upsertShipping(tx, created.id, createDto.shipping);
-      await this.upsertProductInventory(tx, created.id, createDto.inventory, userId);
+      await this.upsertProductInventory(
+        tx,
+        created.id,
+        createDto.inventory,
+        userId,
+      );
       await this.upsertSeo(tx, created.id, createDto.seo);
 
       return created;
@@ -1779,7 +1784,8 @@ export class ProductsService {
     adminSummary?: AdminProductSummary,
   ) {
     const primaryImage = product.images[0];
-    const thumbnailMedia = product.thumbnailMedia ?? primaryImage?.media ?? null;
+    const thumbnailMedia =
+      product.thumbnailMedia ?? primaryImage?.media ?? null;
     const variants = product.variants?.map((variant) => {
       const inventory = variant.inventory
         ? {
@@ -1862,7 +1868,8 @@ export class ProductsService {
       originalPrice: product.originalPrice,
       salePrice: product.salePrice,
       contactForPrice: product.contactForPrice,
-      thumbnailMediaId: product.thumbnailMediaId ?? primaryImage?.mediaId ?? null,
+      thumbnailMediaId:
+        product.thumbnailMediaId ?? primaryImage?.mediaId ?? null,
       thumbnailMedia,
       image: primaryImage
         ? {
@@ -1967,7 +1974,9 @@ export class ProductsService {
           .filter((item) => item.relationType === ProductRelationType.UPSELL)
           .map((item) => item.relatedProductId),
         crossSellIds: product.relatedProducts
-          .filter((item) => item.relationType === ProductRelationType.CROSS_SELL)
+          .filter(
+            (item) => item.relationType === ProductRelationType.CROSS_SELL,
+          )
           .map((item) => item.relatedProductId),
         relatedProducts: product.relatedProducts.map((item) => ({
           id: item.relatedProduct.id,
