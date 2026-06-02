@@ -5,15 +5,21 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { createHash, randomBytes, randomUUID } from 'crypto';
+import { Prisma } from '../../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
+import { CreateAddressDto } from './dto/create-address.dto';
+import { UpdateAddressDto } from './dto/update-address.dto';
 import { GoogleLoginDto } from '../auth/dto/google-login.dto';
 import { RefreshTokenDto } from '../auth/dto/refresh-token.dto';
 import { RequestMeta } from '../auth/types/request-meta.type';
@@ -182,6 +188,71 @@ export class CustomerAuthService {
     return this.toCustomerAuthUser(customer);
   }
 
+  async updateProfile(customerId: string, dto: UpdateProfileDto) {
+    const customer = await this.findCustomerById(customerId);
+    if (!customer || customer.status !== 'ACTIVE') {
+      throw new UnauthorizedException('Tài khoản khách hàng không hoạt động');
+    }
+
+    const data: Prisma.CustomerUpdateInput = {};
+    if (dto.fullName !== undefined) {
+      data.fullName = dto.fullName.trim();
+    }
+    if (dto.phone !== undefined) {
+      const phone = dto.phone?.trim() || null;
+      if (phone) {
+        const existing = await this.prisma.customer.findFirst({
+          where: { phone, NOT: { id: customerId } },
+        });
+        if (existing) {
+          throw new ConflictException('Số điện thoại đã được sử dụng');
+        }
+        data.phone = phone;
+      } else {
+        data.phone = null;
+      }
+    }
+
+    const updated = await this.prisma.customer.update({
+      where: { id: customerId },
+      data,
+    });
+
+    return this.toCustomerAuthUser(updated);
+  }
+
+  async changePassword(customerId: string, dto: ChangePasswordDto) {
+    const customer = await this.findCustomerById(customerId);
+    if (!customer || customer.status !== 'ACTIVE') {
+      throw new UnauthorizedException('Tài khoản khách hàng không hoạt động');
+    }
+
+    if (!customer.passwordHash) {
+      throw new BadRequestException('Tài khoản liên kết bên thứ ba không thể đổi mật khẩu');
+    }
+
+    const isPasswordValid = await bcrypt.compare(
+      dto.currentPassword,
+      customer.passwordHash,
+    );
+
+    if (!isPasswordValid) {
+      throw new BadRequestException('Mật khẩu hiện tại không đúng');
+    }
+
+    if (dto.newPassword !== dto.confirmPassword) {
+      throw new BadRequestException('Mật khẩu xác nhận không khớp');
+    }
+
+    const passwordHash = await bcrypt.hash(dto.newPassword, 10);
+    await this.prisma.customer.update({
+      where: { id: customerId },
+      data: { passwordHash },
+    });
+
+    return { success: true };
+  }
+
   async validateJwtPayload(
     payload: CustomerJwtPayload,
   ): Promise<CustomerAuthUser> {
@@ -281,6 +352,7 @@ export class CustomerAuthService {
       status: customer.status,
       type: customer.type,
       emailVerifiedAt: customer.emailVerifiedAt,
+      hasPassword: !!customer.passwordHash,
     };
   }
 
@@ -453,5 +525,148 @@ export class CustomerAuthService {
 
   private clearFailedAttempts(email: string): void {
     this.failedAttempts.delete(email);
+  }
+
+  async listAddresses(customerId: string) {
+    return this.prisma.customerAddress.findMany({
+      where: { customerId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async createAddress(customerId: string, createAddressDto: CreateAddressDto) {
+    const addressCount = await this.prisma.customerAddress.count({
+      where: { customerId },
+    });
+    const isDefault = addressCount === 0 ? true : !!createAddressDto.isDefault;
+
+    if (isDefault) {
+      await this.prisma.customerAddress.updateMany({
+        where: { customerId, isDefault: true },
+        data: { isDefault: false },
+      });
+    }
+
+    return this.prisma.customerAddress.create({
+      data: {
+        customerId,
+        fullName: createAddressDto.fullName,
+        phone: createAddressDto.phone,
+        addressLine: createAddressDto.addressLine,
+        ward: createAddressDto.ward,
+        district: createAddressDto.district,
+        province: createAddressDto.province,
+        country: createAddressDto.country || 'VN',
+        isDefault,
+        note: createAddressDto.note,
+      },
+    });
+  }
+
+  async updateAddress(
+    customerId: string,
+    addressId: string,
+    updateAddressDto: UpdateAddressDto,
+  ) {
+    const existingAddress = await this.prisma.customerAddress.findFirst({
+      where: { id: addressId, customerId },
+    });
+    if (!existingAddress) {
+      throw new BadRequestException(
+        'Không tìm thấy địa chỉ hoặc bạn không có quyền chỉnh sửa',
+      );
+    }
+
+    if (updateAddressDto.isDefault) {
+      await this.prisma.customerAddress.updateMany({
+        where: { customerId, isDefault: true },
+        data: { isDefault: false },
+      });
+    }
+
+    return this.prisma.customerAddress.update({
+      where: { id: addressId },
+      data: {
+        fullName: updateAddressDto.fullName,
+        phone: updateAddressDto.phone,
+        addressLine: updateAddressDto.addressLine,
+        ward: updateAddressDto.ward,
+        district: updateAddressDto.district,
+        province: updateAddressDto.province,
+        country: updateAddressDto.country,
+        isDefault: updateAddressDto.isDefault,
+        note: updateAddressDto.note,
+      },
+    });
+  }
+
+  async deleteAddress(customerId: string, addressId: string) {
+    const existingAddress = await this.prisma.customerAddress.findFirst({
+      where: { id: addressId, customerId },
+    });
+    if (!existingAddress) {
+      throw new BadRequestException(
+        'Không tìm thấy địa chỉ hoặc bạn không có quyền xóa',
+      );
+    }
+
+    await this.prisma.customerAddress.delete({
+      where: { id: addressId },
+    });
+
+    if (existingAddress.isDefault) {
+      const firstRemaining = await this.prisma.customerAddress.findFirst({
+        where: { customerId },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (firstRemaining) {
+        await this.prisma.customerAddress.update({
+          where: { id: firstRemaining.id },
+          data: { isDefault: true },
+        });
+      }
+    }
+
+    return { success: true };
+  }
+
+  async listOrders(customerId: string) {
+    return this.prisma.order.findMany({
+      where: {
+        customerId,
+      },
+      include: {
+        items: true,
+        payments: true,
+        shippingAddress: true,
+        shipments: true,
+        statusHistories: {
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async getOrder(customerId: string, code: string) {
+    const order = await this.prisma.order.findFirst({
+      where: {
+        customerId,
+        code,
+      },
+      include: {
+        items: true,
+        payments: true,
+        shippingAddress: true,
+        shipments: true,
+        statusHistories: {
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+    return order;
   }
 }

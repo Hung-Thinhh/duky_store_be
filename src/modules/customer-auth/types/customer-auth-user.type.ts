@@ -6,4 +6,5 @@ export type CustomerAuthUser = {
   status: string;
   type: string;
   emailVerifiedAt: Date | null;
+  hasPassword: boolean;
 };

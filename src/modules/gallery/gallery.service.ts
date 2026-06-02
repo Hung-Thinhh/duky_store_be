@@ -12,14 +12,13 @@ import { extname, join } from 'node:path';
 import sharp from 'sharp';
 import { MediaProvider, Prisma } from '../../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
-import { CreateExternalMediaDto } from './dto/create-external-media.dto';
-import { ListMediaQueryDto } from './dto/list-media-query.dto';
-import { UpdateMediaDto } from './dto/update-media.dto';
-import { UploadMediaMetadataDto } from './dto/upload-media-metadata.dto';
-import { MediaAiIndexService } from './media-ai-index.service';
+import { CreateExternalGalleryDto } from './dto/create-external-gallery.dto';
+import { ListGalleryQueryDto } from './dto/list-gallery-query.dto';
+import { UpdateGalleryDto } from './dto/update-gallery.dto';
+import { UploadGalleryMetadataDto } from './dto/upload-gallery-metadata.dto';
 
 const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024;
-const LOCAL_MEDIA_FOLDER = join(process.cwd(), 'uploads', 'media');
+const LOCAL_GALLERY_FOLDER = join(process.cwd(), 'uploads', 'gallery');
 
 const IMAGE_MIME_TYPES = new Set([
   'image/*',
@@ -55,9 +54,10 @@ const WEBP_CONVERTIBLE_MIME_TYPES = new Set([
 
 const DIMENSION_EXTRACTION_TIMEOUT_MS = 5000;
 
-type MediaWithUploader = NonNullable<
-  Awaited<ReturnType<MediaService['findById']>>
+type GalleryImageWithUploader = NonNullable<
+  Awaited<ReturnType<GalleryService['findById']>>
 >;
+
 type UploadedMediaFile = {
   buffer: Buffer;
   mimetype: string;
@@ -66,26 +66,25 @@ type UploadedMediaFile = {
 };
 
 @Injectable()
-export class MediaService {
-  private readonly logger = new Logger(MediaService.name);
+export class GalleryService {
+  private readonly logger = new Logger(GalleryService.name);
   private r2Client?: S3Client;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
-    private readonly mediaAiIndexService: MediaAiIndexService,
   ) {}
 
-  async list(query: ListMediaQueryDto) {
+  async list(query: ListGalleryQueryDto) {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
     const where = this.buildWhere(query);
 
-    const [total, media] = await this.prisma.$transaction([
-      this.prisma.media.count({ where }),
-      this.prisma.media.findMany({
+    const [total, galleryImages] = await this.prisma.$transaction([
+      this.prisma.galleryImage.count({ where }),
+      this.prisma.galleryImage.findMany({
         where,
-        include: this.mediaInclude(),
+        include: this.galleryInclude(),
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
@@ -93,7 +92,7 @@ export class MediaService {
     ]);
 
     return {
-      data: media.map((item) => this.toMedia(item)),
+      data: galleryImages.map((item) => this.toGalleryImage(item)),
       pagination: {
         page,
         limit,
@@ -103,26 +102,48 @@ export class MediaService {
     };
   }
 
+  async listPublic(forMale?: boolean) {
+    const where: Prisma.GalleryImageWhereInput = {
+      deletedAt: null,
+    };
+
+    if (forMale !== undefined) {
+      where.forMale = forMale;
+    }
+
+    const galleryImages = await this.prisma.galleryImage.findMany({
+      where,
+      include: this.galleryInclude(),
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Match the frontend's expected schema: { id, src, alt, forMale }
+    return galleryImages.map((item) => ({
+      id: item.id,
+      src: item.url,
+      alt: item.altText ?? item.title ?? item.fileName,
+      forMale: item.forMale,
+    }));
+  }
+
   async createExternal(
-    createDto: CreateExternalMediaDto,
+    createDto: CreateExternalGalleryDto,
     uploadedById: string,
   ) {
     const normalized = this.normalizeCreateInput(createDto);
-    const media = await this.prisma.media.create({
+    const galleryImage = await this.prisma.galleryImage.create({
       data: {
         provider: MediaProvider.EXTERNAL,
         uploadedById,
         ...normalized,
       },
-      include: this.mediaInclude(),
+      include: this.galleryInclude(),
     });
 
-    await this.safeUpsertAiIndex(media);
-
-    return this.toMedia(media);
+    return this.toGalleryImage(galleryImage);
   }
 
-  async createLocal(file: UploadedMediaFile, uploadedById: string, baseUrl: string, metadata?: UploadMediaMetadataDto) {
+  async createLocal(file: UploadedMediaFile, uploadedById: string, baseUrl: string, metadata?: UploadGalleryMetadataDto) {
     this.assertUploadFile(file);
 
     if (file.originalname) {
@@ -144,7 +165,7 @@ export class MediaService {
 
       await this.uploadToR2(objectKey, converted.buffer, converted.mimeType);
 
-      const media = await this.prisma.media.create({
+      const galleryImage = await this.prisma.galleryImage.create({
         data: {
           provider: MediaProvider.R2,
           uploadedById,
@@ -160,24 +181,23 @@ export class MediaService {
           folder: this.getR2Prefix(),
           altText: metadata?.altText?.trim() || null,
           title: metadata?.title?.trim() || null,
+          forMale: metadata?.forMale,
         },
-        include: this.mediaInclude(),
+        include: this.galleryInclude(),
       });
 
-      await this.safeUpsertAiIndex(media);
-
-      return this.toMedia(media);
+      return this.toGalleryImage(galleryImage);
     }
 
-    await mkdir(LOCAL_MEDIA_FOLDER, { recursive: true });
+    await mkdir(LOCAL_GALLERY_FOLDER, { recursive: true });
 
-    const filePath = join(LOCAL_MEDIA_FOLDER, storedFileName);
+    const filePath = join(LOCAL_GALLERY_FOLDER, storedFileName);
 
     // Write the converted buffer (or original if SVG/already WebP)
     await writeFile(filePath, converted.buffer);
 
-    const url = `${baseUrl}/api/v1/media/files/${storedFileName}`;
-    const media = await this.prisma.media.create({
+    const url = `${baseUrl}/api/v1/gallery/files/${storedFileName}`;
+    const galleryImage = await this.prisma.galleryImage.create({
       data: {
         provider: MediaProvider.LOCAL,
         uploadedById,
@@ -190,16 +210,15 @@ export class MediaService {
         size: converted.buffer.length,
         width: dimensions.width,
         height: dimensions.height,
-        folder: 'uploads',
+        folder: 'gallery',
         altText: metadata?.altText?.trim() || null,
         title: metadata?.title?.trim() || null,
+        forMale: metadata?.forMale,
       },
-      include: this.mediaInclude(),
+      include: this.galleryInclude(),
     });
 
-    await this.safeUpsertAiIndex(media);
-
-    return this.toMedia(media);
+    return this.toGalleryImage(galleryImage);
   }
 
   async createLocalMany(
@@ -207,7 +226,7 @@ export class MediaService {
     uploadedById: string,
     baseUrl: string,
   ) {
-    const uploaded: Awaited<ReturnType<MediaService['createLocal']>>[] = [];
+    const uploaded: Awaited<ReturnType<GalleryService['createLocal']>>[] = [];
 
     for (const file of files) {
       uploaded.push(await this.createLocal(file, uploadedById, baseUrl));
@@ -217,11 +236,11 @@ export class MediaService {
   }
 
   async getById(id: string) {
-    return this.toMedia(await this.getMediaOrThrow(id));
+    return this.toGalleryImage(await this.getGalleryImageOrThrow(id));
   }
 
-  async update(id: string, updateDto: UpdateMediaDto) {
-    const existing = await this.getMediaOrThrow(id);
+  async update(id: string, updateDto: UpdateGalleryDto) {
+    const existing = await this.getGalleryImageOrThrow(id);
     const data = this.normalizeUpdateInput(updateDto);
 
     if (!Object.keys(data).length) {
@@ -236,46 +255,43 @@ export class MediaService {
       existing.providerKey
     ) {
       const newFileName = data.fileName as string;
-      const oldFilePath = join(LOCAL_MEDIA_FOLDER, existing.providerKey);
+      const oldFilePath = join(LOCAL_GALLERY_FOLDER, existing.providerKey);
 
       // Add short random suffix to avoid collisions: slug-a3f2.webp
       const ext = extname(newFileName) || extname(existing.providerKey || '');
       const nameWithoutExt = newFileName.replace(/\.[^.]+$/, '');
       const suffix = randomUUID().substring(0, 4);
       const finalFileName = `${nameWithoutExt}-${suffix}${ext}`;
-      const newFilePath = join(LOCAL_MEDIA_FOLDER, finalFileName);
+      const newFilePath = join(LOCAL_GALLERY_FOLDER, finalFileName);
 
       try {
         await rename(oldFilePath, newFilePath);
 
         // Update URL, providerKey, and fileName to reflect the new file name
-        const baseUrl = existing.url.replace(`/api/v1/media/files/${existing.providerKey}`, '');
-        const newUrl = `${baseUrl}/api/v1/media/files/${finalFileName}`;
+        const baseUrl = existing.url.replace(`/api/v1/gallery/files/${existing.providerKey}`, '');
+        const newUrl = `${baseUrl}/api/v1/gallery/files/${finalFileName}`;
 
         data.providerKey = finalFileName;
         data.fileName = finalFileName;
         data.url = newUrl;
         data.secureUrl = newUrl;
       } catch (err) {
-        this.logger.warn(`Failed to rename media file: ${err instanceof Error ? err.message : 'Unknown error'}`);
-        // If rename fails, still update metadata but keep old file path
+        this.logger.warn(`Failed to rename gallery file: ${err instanceof Error ? err.message : 'Unknown error'}`);
       }
     }
 
-    const media = await this.prisma.media.update({
+    const galleryImage = await this.prisma.galleryImage.update({
       where: { id },
       data,
-      include: this.mediaInclude(),
+      include: this.galleryInclude(),
     });
 
-    await this.safeUpsertAiIndex(media);
-
-    return this.toMedia(media);
+    return this.toGalleryImage(galleryImage);
   }
 
   async remove(id: string) {
-    await this.getMediaOrThrow(id);
-    await this.prisma.media.update({
+    await this.getGalleryImageOrThrow(id);
+    await this.prisma.galleryImage.update({
       where: { id },
       data: { deletedAt: new Date() },
     });
@@ -283,8 +299,8 @@ export class MediaService {
     return { success: true };
   }
 
-  private buildWhere(query: ListMediaQueryDto): Prisma.MediaWhereInput {
-    const where: Prisma.MediaWhereInput = {
+  private buildWhere(query: ListGalleryQueryDto): Prisma.GalleryImageWhereInput {
+    const where: Prisma.GalleryImageWhereInput = {
       deletedAt: null,
     };
     const search = query.search?.trim();
@@ -307,12 +323,16 @@ export class MediaService {
       where.provider = query.provider;
     }
 
+    if (query.forMale !== undefined) {
+      where.forMale = query.forMale;
+    }
+
     return where;
   }
 
   private normalizeCreateInput(
-    createDto: CreateExternalMediaDto,
-  ): Prisma.MediaUncheckedCreateInput {
+    createDto: CreateExternalGalleryDto,
+  ): Prisma.GalleryImageUncheckedCreateInput {
     const url = createDto.url.trim();
     const mimeType = this.resolveMimeType(url, createDto.mimeType);
 
@@ -330,13 +350,14 @@ export class MediaService {
       altText: this.nullableTrim(createDto.altText),
       title: this.nullableTrim(createDto.title),
       metadata: this.resolveMetadata(createDto.metadata),
+      forMale: createDto.forMale,
     };
   }
 
   private normalizeUpdateInput(
-    updateDto: UpdateMediaDto,
-  ): Prisma.MediaUncheckedUpdateInput {
-    const data: Prisma.MediaUncheckedUpdateInput = {};
+    updateDto: UpdateGalleryDto,
+  ): Prisma.GalleryImageUncheckedUpdateInput {
+    const data: Prisma.GalleryImageUncheckedUpdateInput = {};
     const url = updateDto.url?.trim();
 
     if (url !== undefined) {
@@ -399,6 +420,10 @@ export class MediaService {
       data.metadata = this.resolveMetadata(updateDto.metadata);
     }
 
+    if (updateDto.forMale !== undefined) {
+      data.forMale = updateDto.forMale;
+    }
+
     return data;
   }
 
@@ -458,20 +483,6 @@ export class MediaService {
     }
   }
 
-  private resolveUploadExtension(file: UploadedMediaFile) {
-    const originalExtension = extname(file.originalname).toLowerCase();
-
-    if (originalExtension) {
-      return originalExtension;
-    }
-
-    const extension = Object.entries(IMAGE_EXTENSION_MIME_TYPES).find(
-      ([, mimeType]) => mimeType === file.mimetype,
-    )?.[0];
-
-    return extension ? `.${extension}` : '';
-  }
-
   private createStoredUploadFileName(requestedFileName: string | undefined, extension: string) {
     const requestedBase = requestedFileName
       ?.trim()
@@ -497,7 +508,7 @@ export class MediaService {
       return normalizedFileName;
     }
 
-    return this.getUrlFileName(url) ?? 'external-image';
+    return this.getUrlFileName(url) ?? 'external-gallery-image';
   }
 
   private getUrlFileName(url: string) {
@@ -591,7 +602,7 @@ export class MediaService {
   }
 
   private getR2Prefix() {
-    return (this.configService.get<string>('R2_PREFIX') || 'media')
+    return (this.configService.get<string>('R2_PREFIX') || 'gallery')
       .trim()
       .replace(/^\/+|\/+$/g, '');
   }
@@ -616,27 +627,27 @@ export class MediaService {
     return value;
   }
 
-  private async getMediaOrThrow(id: string) {
-    const media = await this.findById(id);
+  private async getGalleryImageOrThrow(id: string) {
+    const galleryImage = await this.findById(id);
 
-    if (!media) {
-      throw new NotFoundException('Media not found');
+    if (!galleryImage) {
+      throw new NotFoundException('Gallery image not found');
     }
 
-    return media;
+    return galleryImage;
   }
 
   private async findById(id: string) {
-    return this.prisma.media.findFirst({
+    return this.prisma.galleryImage.findFirst({
       where: {
         id,
         deletedAt: null,
       },
-      include: this.mediaInclude(),
+      include: this.galleryInclude(),
     });
   }
 
-  private mediaInclude() {
+  private galleryInclude() {
     return {
       uploadedBy: {
         select: {
@@ -661,7 +672,6 @@ export class MediaService {
         ),
       ]);
 
-      // SVG format returns format === 'svg', treat as non-extractable
       if (metadata.format === 'svg') {
         return { width: null, height: null };
       }
@@ -684,7 +694,6 @@ export class MediaService {
 
       return { width: null, height: null };
     } catch {
-      // SVG, corrupt files, timeout → graceful fallback
       return { width: null, height: null };
     }
   }
@@ -693,17 +702,14 @@ export class MediaService {
     buffer: Buffer,
     mimeType: string,
   ): Promise<{ buffer: Buffer; mimeType: string; extension: string }> {
-    // SVG files should not be converted (vector format)
     if (mimeType === 'image/svg+xml') {
       return { buffer, mimeType, extension: '.svg' };
     }
 
-    // Already WebP — keep as-is
     if (mimeType === 'image/webp') {
       return { buffer, mimeType, extension: '.webp' };
     }
 
-    // Only convert supported raster formats
     if (!WEBP_CONVERTIBLE_MIME_TYPES.has(mimeType)) {
       const ext = Object.entries(IMAGE_EXTENSION_MIME_TYPES).find(
         ([, mime]) => mime === mimeType,
@@ -715,7 +721,6 @@ export class MediaService {
       const webpBuffer = await sharp(buffer).webp({ quality: 85 }).toBuffer();
       return { buffer: webpBuffer, mimeType: 'image/webp', extension: '.webp' };
     } catch (error) {
-      // Conversion failed — fallback to original buffer
       this.logger.warn(
         `WebP conversion failed, keeping original format: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
@@ -726,38 +731,27 @@ export class MediaService {
     }
   }
 
-  private toMedia(media: MediaWithUploader) {
+  private toGalleryImage(galleryImage: GalleryImageWithUploader) {
     return {
-      id: media.id,
-      provider: media.provider,
-      providerKey: media.providerKey,
-      url: media.url,
-      secureUrl: media.secureUrl,
-      fileName: media.fileName,
-      originalName: media.originalName,
-      mimeType: media.mimeType,
-      size: media.size,
-      width: media.width,
-      height: media.height,
-      folder: media.folder,
-      altText: media.altText,
-      title: media.title,
-      metadata: media.metadata,
-      uploadedBy: media.uploadedBy,
-      createdAt: media.createdAt,
-      updatedAt: media.updatedAt,
+      id: galleryImage.id,
+      provider: galleryImage.provider,
+      providerKey: galleryImage.providerKey,
+      url: galleryImage.url,
+      secureUrl: galleryImage.secureUrl,
+      fileName: galleryImage.fileName,
+      originalName: galleryImage.originalName,
+      mimeType: galleryImage.mimeType,
+      size: galleryImage.size,
+      width: galleryImage.width,
+      height: galleryImage.height,
+      folder: galleryImage.folder,
+      altText: galleryImage.altText,
+      title: galleryImage.title,
+      metadata: galleryImage.metadata,
+      forMale: galleryImage.forMale,
+      uploadedBy: galleryImage.uploadedBy,
+      createdAt: galleryImage.createdAt,
+      updatedAt: galleryImage.updatedAt,
     };
-  }
-
-  private async safeUpsertAiIndex(media: MediaWithUploader) {
-    if (!media.mimeType.startsWith('image/')) return;
-
-    try {
-      await this.mediaAiIndexService.upsertMediaIndex(media);
-    } catch (error) {
-      this.logger.warn(
-        `Failed to update media AI index: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      );
-    }
   }
 }
