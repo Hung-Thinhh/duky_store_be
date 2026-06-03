@@ -165,6 +165,11 @@ type ProductListItem = {
     isPrimary: boolean;
     media: ProductMedia;
   }>;
+  categories?: Array<{
+    category: {
+      slug: string;
+    };
+  }>;
   inventory?: {
     id: string;
     quantity: number;
@@ -294,7 +299,56 @@ export class ProductsService {
   async listPublic(query: ListProductsQueryDto) {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
-    const where = this.buildPublicWhere(query);
+
+    let categoryIds: string[] = [];
+    if (query.categorySlug?.trim()) {
+      const slugs = query.categorySlug
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      if (slugs.length > 0) {
+        const matchingCategories = await this.prisma.category.findMany({
+          where: {
+            slug: { in: slugs },
+            deletedAt: null,
+            status: CategoryStatus.ACTIVE,
+          },
+          include: {
+            children: {
+              where: {
+                deletedAt: null,
+                status: CategoryStatus.ACTIVE,
+              },
+              select: {
+                id: true,
+                children: {
+                  where: {
+                    deletedAt: null,
+                    status: CategoryStatus.ACTIVE,
+                  },
+                  select: { id: true },
+                },
+              },
+            },
+          },
+        });
+
+        const ids = new Set<string>();
+        for (const cat of matchingCategories) {
+          ids.add(cat.id);
+          for (const child of cat.children || []) {
+            ids.add(child.id);
+            for (const grandchild of child.children || []) {
+              ids.add(grandchild.id);
+            }
+          }
+        }
+        categoryIds = Array.from(ids);
+      }
+    }
+
+    const where = this.buildPublicWhere(query, categoryIds);
 
     const [total, products] = await Promise.all([
       this.prisma.product.count({ where }),
@@ -589,6 +643,7 @@ export class ProductsService {
 
   private buildPublicWhere(
     query: ListProductsQueryDto,
+    categoryIds?: string[],
   ): Prisma.ProductWhereInput {
     const where: Prisma.ProductWhereInput = {
       deletedAt: null,
@@ -604,7 +659,13 @@ export class ProductsService {
       ];
     }
 
-    if (query.categorySlug?.trim()) {
+    if (categoryIds && categoryIds.length > 0) {
+      where.categories = {
+        some: {
+          categoryId: { in: categoryIds },
+        },
+      };
+    } else if (query.categorySlug?.trim()) {
       where.categories = {
         some: {
           category: {
@@ -1638,6 +1699,15 @@ export class ProductsService {
       publishedAt: true,
       createdAt: true,
       updatedAt: true,
+      categories: {
+        select: {
+          category: {
+            select: {
+              slug: true,
+            },
+          },
+        },
+      },
       images: {
         take: 1,
         include: {
@@ -1884,6 +1954,7 @@ export class ProductsService {
       isFeatured: product.isFeatured,
       isBestSeller: product.isBestSeller,
       isNewArrival: product.isNewArrival,
+      categorySlugs: product.categories?.map((c) => c.category.slug) || [],
       ...adminMeta,
       publishedAt: product.publishedAt,
       createdAt: product.createdAt,
