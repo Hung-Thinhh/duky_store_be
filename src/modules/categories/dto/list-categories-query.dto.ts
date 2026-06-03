@@ -3,18 +3,18 @@ import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 import { CategoryStatus } from '../../../../generated/prisma/client';
 
 export class ListCategoriesQueryDto {
-  @ApiPropertyOptional({ default: 1, minimum: 1 })
+  @ApiPropertyOptional({ minimum: 1 })
   @IsOptional()
   @IsInt()
   @Min(1)
-  page?: number = 1;
+  page?: number;
 
-  @ApiPropertyOptional({ default: 20, minimum: 1, maximum: 100 })
+  @ApiPropertyOptional({ minimum: 1, maximum: 1000 })
   @IsOptional()
   @IsInt()
   @Min(1)
-  @Max(100)
-  limit?: number = 20;
+  @Max(1000)
+  limit?: number;
 
   @ApiPropertyOptional()
   @IsOptional()

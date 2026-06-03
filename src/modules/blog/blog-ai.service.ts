@@ -71,9 +71,9 @@ export class BlogAiService {
       || 'gx/gpt-5.5';
     const endpoint = `${baseUrl.replace(/\/+$/g, '')}/chat/completions`;
 
-    // 1. Thêm Timeout 90s (1 phút 30 giây)
+    // 1. Timeout 300s (5 phút)
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 90000);
+    const timeoutId = setTimeout(() => controller.abort(), 300000);
 
     try {
       const response = await fetch(endpoint, {
@@ -129,8 +129,8 @@ export class BlogAiService {
       
       // Xử lý riêng lỗi do quá thời gian Timeout
       if (error.name === 'AbortError') {
-        this.logger.error('Blog AI request timed out sau 90 giây');
-        throw new BadGatewayException('Blog AI bị gián đoạn do phản hồi quá 90 giây');
+        this.logger.error('Blog AI request timed out sau 5 phút');
+        throw new BadGatewayException('Blog AI bị gián đoạn do phản hồi quá 5 phút');
       }
       throw error;
     }
@@ -297,13 +297,48 @@ export class BlogAiService {
           'Tối ưu SEO là task sửa điểm SEO, không phải task rewrite bài.',
           'Chỉ trả summary, contentHtml nếu cần, internalLinks, imageAlts, selectedMedia và improvements.',
           'Không trả title, slug, excerpt, outline, faqs hoặc SEO metadata cho task này.',
-          'Mục tiêu là đưa điểm SEO dashboard lên tối thiểu 80/100 nếu nội dung đủ dữ liệu.',
+          'MỤC TIÊU BẮT BUỘC: đưa điểm SEO dashboard lên tối thiểu 90/100 (green). Nếu bài đang dưới 90, phải sửa đủ để vượt 90.',
           'Không tạo hoặc sửa SEO metadata; frontend sẽ tự sinh metaTitle/metaDescription/OG/Twitter/canonical.',
           'Nếu article.focusKeyword có sẵn, phải dựa vào key đó, không tạo key mới và không trả seo.focusKeyword khác.',
-          'Nếu extraContext.seoAnalysis.failedChecks có dữ liệu, chỉ sửa đúng các check đang fail trong contentHtml: keyword trong intro/H2/content/alt, internal link, media, độ dài, density, readability.',
+          '',
+          'CHECKLIST CHẤM ĐIỂM SEO (18 checks):',
+          'BASIC SEO (mỗi check 10đ, tổng 60đ):',
+          '1. Focus keyword trong SEO title (FE tự sinh từ title) → đảm bảo keyword có trong title bài.',
+          '2. Focus keyword trong meta description (FE tự sinh từ excerpt) → đảm bảo keyword có trong excerpt.',
+          '3. Focus keyword trong URL slug (FE tự sinh từ title).',
+          '4. Focus keyword trong phần mở đầu (10% đầu nội dung) → đặt keyword trong 1-2 câu đầu tiên.',
+          '5. Focus keyword xuất hiện trong nội dung.',
+          '6. Nội dung tối thiểu 600 từ.',
+          '',
+          'ADDITIONAL SEO (mỗi check 5đ, tổng 30đ, 2 check soft bonus):',
+          '7. Focus keyword trong ít nhất 1 subheading H2/H3.',
+          '8. Focus keyword trong alt text ảnh → trả imageAlts với alt chứa keyword tự nhiên.',
+          '9. Keyword density 1-2.5% → điều chỉnh tần suất keyword.',
+          '10. Từ khóa phụ trong nội dung (soft bonus +2đ).',
+          '11. Từ khóa phụ trong H2/H3 (soft bonus +2đ).',
+          '12. URL slug không quá 75 ký tự.',
+          '13. Có ít nhất 1 external link → thêm link ngoài uy tín nếu thiếu.',
+          '14. Có ít nhất 1 internal link → dùng URL products/blog từ context.',
+          '',
+          'TITLE READABILITY (mỗi check 2.5đ):',
+          '15. Keyword ở nửa đầu title.',
+          '16. Title chứa chữ số (ví dụ "5 cách...", "Top 10...").',
+          '',
+          'CONTENT READABILITY (mỗi check 1.25đ):',
+          '17. Mỗi đoạn văn không quá 150 từ.',
+          '18. Có ít nhất 1 ảnh hoặc video.',
+          '19. Độ dài câu trung bình ≤ 20 từ.',
+          '20. Không quá 3 câu liên tiếp bắt đầu cùng 1 từ.',
+          '',
+          'ƯU TIÊN SỬA: Tập trung vào failedChecks trong extraContext.seoAnalysis. Đặc biệt chú ý:',
+          '- Đảm bảo keyword xuất hiện trong câu mở đầu (check 4).',
+          '- Đảm bảo keyword trong ít nhất 1 H2 (check 7).',
+          '- Đảm bảo alt ảnh chứa keyword (check 8).',
+          '- Thêm external link uy tín nếu thiếu (check 13).',
+          '- Thêm internal link từ context nếu thiếu (check 14).',
           'Giữ ý chính, title, slug, excerpt và giọng bài cũ; không viết lại toàn bộ nếu không cần.',
           'Nếu context.extraContext.mediaLibrary có ảnh, hãy chọn ảnh phù hợp cho cover/OG và 1-3 inlineImages; alt ảnh nên chứa focus keyword tự nhiên.',
-          'Nếu nội dung đã đạt SEO, contentHtml có thể null; improvements phải nói rõ check nào đã đạt/chưa cần sửa.',
+          'Nếu nội dung đã đạt SEO 90+, contentHtml có thể null; improvements phải nói rõ check nào đã đạt/chưa cần sửa.',
         ].join(' ');
       case BlogAiTask.OUTLINE:
         return [

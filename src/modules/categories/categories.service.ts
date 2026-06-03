@@ -30,9 +30,12 @@ export class CategoriesService {
   constructor(private readonly prisma: PrismaService) {}
 
   async list(query: ListCategoriesQueryDto) {
-    const page = query.page ?? 1;
-    const limit = query.limit ?? 20;
+    const page = query.page;
+    const limit = query.limit;
     const where = this.buildWhere(query);
+
+    const take = limit;
+    const skip = page && limit ? (page - 1) * limit : undefined;
 
     const [total, categories] = await this.prisma.$transaction([
       this.prisma.category.count({ where }),
@@ -40,18 +43,18 @@ export class CategoriesService {
         where,
         include: this.categoryInclude(),
         orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
-        skip: (page - 1) * limit,
-        take: limit,
+        ...(skip !== undefined ? { skip } : {}),
+        ...(take !== undefined ? { take } : {}),
       }),
     ]);
 
     return {
       data: categories.map((category) => this.toCategory(category)),
       pagination: {
-        page,
-        limit,
+        page: page ?? 1,
+        limit: limit ?? total,
         total,
-        totalPages: Math.ceil(total / limit),
+        totalPages: limit ? Math.ceil(total / limit) : 1,
       },
     };
   }
