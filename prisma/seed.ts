@@ -94,6 +94,8 @@ const rolePermissionRules: Record<(typeof roleNames)[number], string[]> = {
   ORDER_MANAGER: [
     'dashboard.read',
     'products.read',
+    'products.update',
+    'media.manage',
     'inventory.read',
     'inventory.update',
     'orders.manage',

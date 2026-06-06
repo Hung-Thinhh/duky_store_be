@@ -42,11 +42,13 @@ Vai trò chuyên trách xử lý luồng vận hành bán hàng, quản lý dòn
   * **Quản lý Vận chuyển (`shipping.manage`):** Tạo vận đơn, liên kết hãng vận chuyển, cấu hình các vùng và phí vận chuyển.
   * **Quản lý Khách hàng (`customers.read`, `customers.update`):** Xem danh sách khách hàng và chỉnh sửa thông tin liên hệ của khách hàng.
   * **Xem sản phẩm (`products.read`):** Xem chi tiết thông tin, giá bán và hình ảnh sản phẩm để hỗ trợ việc tạo/xử lý đơn hàng.
+  * **Chỉnh sửa sản phẩm (`products.update`):** Cập nhật thông tin sản phẩm và quản lý gallery hình ảnh sản phẩm.
+  * **Quản lý Media (`media.manage`):** Upload, chỉnh sửa và xóa hình ảnh trong thư viện media để sử dụng cho gallery sản phẩm.
   * **Xem thống kê (`dashboard.read`):** Xem các biểu đồ doanh thu, số lượng đơn hàng trên trang chủ Dashboard để theo dõi hiệu suất bán hàng.
   * **Khác:** Xem phản hồi liên hệ khách hàng gửi về (`contacts.read`).
 
 > [!WARNING]
-> **Hạn chế:** Vai trò này **KHÔNG** được chỉnh sửa thông tin sản phẩm, không được upload hình ảnh media, không được viết bài viết blog và tuyệt đối không được can thiệp vào cài đặt hệ thống hoặc danh sách nhân viên.
+> **Hạn chế:** Vai trò này **KHÔNG** được phép tạo mới hoặc xóa sản phẩm, không được viết bài viết blog và tuyệt đối không được can thiệp vào cài đặt hệ thống hoặc danh sách nhân viên.
 
 ---
 
@@ -89,7 +91,7 @@ Dưới đây là bảng tổng hợp trực quan giúp bạn dễ dàng so sán
 | **Nhân Sự & Hệ Thống** | Quản lý Tài khoản Admin (`users`) | 👑 **Toàn quyền** | ❌ Không | ❌ Không | ❌ Không |
 | | Quản lý Vai trò & Quyền (`roles`, `permissions`) | 👑 **Toàn quyền** | ❌ Không | ❌ Không | ❌ Không |
 | | Cấu hình cài đặt chung (`settings`) | 👑 **Toàn quyền** | ❌ Không | ❌ Không | ❌ Không |
-| **Sản Phẩm & Kho** | Thêm mới / Chỉnh sửa Sản phẩm | 👑 **Toàn quyền** | ❌ Không | ❌ Không | ❌ Không |
+| **Sản Phẩm & Kho** | Thêm mới / Chỉnh sửa Sản phẩm | 👑 **Toàn quyền** | ✅ Chỉnh sửa | ❌ Không | ❌ Không |
 | | Xem thông tin Sản phẩm (`products.read`) | ✅ Có | ✅ Có | ✅ Có | ✅ Có |
 | | Xem số lượng tồn kho (`inventory.read`) | ✅ Có | ✅ Có | ❌ Không | ✅ Có |
 | | Điều chỉnh số lượng kho (`inventory.update`) | ✅ Có | ✅ **Có** | ❌ Không | ❌ Không |
@@ -99,7 +101,7 @@ Dưới đây là bảng tổng hợp trực quan giúp bạn dễ dàng so sán
 | | Duyệt trạng thái Thanh toán | 👑 **Toàn quyền** | ✅ **Toàn quyền** | ❌ Không | ❌ Không |
 | | Cấu hình Vùng & Phí vận chuyển | 👑 **Toàn quyền** | ✅ **Toàn quyền** | ❌ Không | ❌ Không |
 | **Nội Dung & SEO** | Viết / Sửa / Xóa bài viết Blog | 👑 **Toàn quyền** | ❌ Không | ✅ **Toàn quyền** | ❌ Không |
-| | Upload / Xóa hình ảnh Media | 👑 **Toàn quyền** | ❌ Không | ✅ **Toàn quyền** | ❌ Không |
+| | Upload / Xóa hình ảnh Media | 👑 **Toàn quyền** | ✅ **Toàn quyền** | ✅ **Toàn quyền** | ❌ Không |
 | | Biên tập Trang tĩnh & Trang chủ | 👑 **Toàn quyền** | ❌ Không | ✅ **Toàn quyền** | ❌ Không |
 | | Cấu hình SEO & Chuyển hướng | 👑 **Toàn quyền** | ❌ Không | ✅ **Toàn quyền** | ❌ Không |
 | **Khách Hàng & Liên Hệ** | Xem thông tin Khách hàng | ✅ Có | ✅ Có | ❌ Không | ✅ Có |
