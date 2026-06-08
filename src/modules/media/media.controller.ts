@@ -50,7 +50,7 @@ const imageUploadPipe = new ParseFilePipe({
 @ApiBearerAuth()
 @Controller('admin/media')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('SUPER_ADMIN', 'ADMIN', 'CONTENT_EDITOR')
+@Roles('SUPER_ADMIN', 'ADMIN', 'CONTENT_EDITOR', 'ORDER_MANAGER')
 export class MediaController {
   constructor(
     private readonly mediaService: MediaService,

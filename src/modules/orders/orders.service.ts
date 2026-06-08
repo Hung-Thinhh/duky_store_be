@@ -97,13 +97,27 @@ export class OrdersService {
             throw new BadRequestException(`Variant is not available for ${product.name}`);
           }
 
-          const inventory = variant?.inventory ?? product.inventory;
+          const rawInventory = variant?.inventory ?? product.inventory;
 
-          if (!inventory || inventory.soldOut) {
+          if (!rawInventory || rawInventory.soldOut) {
             throw new BadRequestException(`Product ${product.name} is out of stock`);
           }
 
-          const availableQuantity = inventory.quantity - inventory.reservedQuantity;
+          // Re-fetch inventory with pessimistic lock
+          const [lockedInventory] = await tx.$queryRaw<
+            { id: string; quantity: number; reservedQuantity: number; soldOut: boolean }[]
+          >`
+            SELECT id, quantity, "reservedQuantity", "soldOut"
+            FROM inventories
+            WHERE id = ${rawInventory.id}
+            FOR UPDATE
+          `;
+
+          if (!lockedInventory || lockedInventory.soldOut) {
+            throw new BadRequestException(`Product ${product.name} is out of stock`);
+          }
+
+          const availableQuantity = lockedInventory.quantity - lockedInventory.reservedQuantity;
 
           if (item.quantity > availableQuantity) {
             throw new BadRequestException(
@@ -127,7 +141,7 @@ export class OrdersService {
           return {
             product,
             variant,
-            inventory,
+            inventory: lockedInventory,
             quantity: item.quantity,
             unitPrice,
             lineTotal: unitPrice * item.quantity,
@@ -217,7 +231,12 @@ export class OrdersService {
         },
       });
 
-      for (const item of normalizedItems) {
+      // Sort by inventory ID to prevent deadlocks
+      const sortedItems = [...normalizedItems].sort((a, b) =>
+        a.inventory.id.localeCompare(b.inventory.id),
+      );
+
+      for (const item of sortedItems) {
         const orderItem = await tx.orderItem.create({
           data: {
             orderId: created.id,

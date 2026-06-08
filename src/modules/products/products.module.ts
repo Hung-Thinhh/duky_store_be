@@ -4,10 +4,10 @@ import { ProductsController } from './products.controller';
 import { ProductsService } from './products.service';
 import { AdminProductAiController } from './product-ai-admin.controller';
 import { ProductAiService } from './product-ai.service';
-import { SeoModule } from '../seo/seo.module';
+import { SettingsModule } from '../settings/settings.module';
 
 @Module({
-  imports: [SeoModule],
+  imports: [SettingsModule],
   controllers: [AdminProductsController, ProductsController, AdminProductAiController],
   providers: [ProductsService, ProductAiService],
   exports: [ProductsService, ProductAiService],
