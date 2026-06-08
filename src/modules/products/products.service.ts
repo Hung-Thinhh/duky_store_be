@@ -275,6 +275,7 @@ type PreparedProductRelations = {
 export class ProductsService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly gscService: GscService,
     private readonly settingsService: SettingsService,
   ) {}
 
