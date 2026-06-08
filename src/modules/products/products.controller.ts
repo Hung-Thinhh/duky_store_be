@@ -14,6 +14,15 @@ export class ProductsController {
     return this.productsService.listPublic(query);
   }
 
+  @Get(':slug/recommendations')
+  @ApiOperation({ summary: 'Get product recommendations by slug' })
+  getRecommendations(
+    @Param('slug') slug: string,
+    @Query('limit') limit?: number,
+  ) {
+    return this.productsService.getRecommendationsBySlug(slug, limit);
+  }
+
   @Get(':slug/variants')
   @ApiOperation({ summary: 'List active variants for published product by slug' })
   listVariantsBySlug(@Param('slug') slug: string) {

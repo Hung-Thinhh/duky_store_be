@@ -128,7 +128,7 @@ export class CartService {
 
   async updateItem(id: string, updateDto: UpdateCartItemDto) {
     const item = await this.getOwnedItemOrThrow(id, updateDto.sessionId);
-    const product = await this.getProductForCart(item.productId);
+    const product = await this.getProductForCart(item.productId, item.variantId ?? undefined);
     const variant = this.resolveVariant(product, item.variantId ?? undefined);
     const purchasable = this.resolvePurchasable(product, variant);
 
@@ -228,14 +228,57 @@ export class CartService {
     return item;
   }
 
-  private async getProductForCart(productId: string) {
+  private async getProductForCart(productId: string, variantId?: string) {
     const product = await this.prisma.product.findFirst({
       where: {
         id: productId,
         deletedAt: null,
         status: ProductStatus.PUBLISHED,
       },
-      include: this.productInclude(),
+      select: {
+        id: true,
+        name: true,
+        sku: true,
+        status: true,
+        originalPrice: true,
+        salePrice: true,
+        contactForPrice: true,
+        inventory: {
+          select: {
+            quantity: true,
+            reservedQuantity: true,
+            soldOut: true,
+          },
+        },
+        variants: {
+          where: {
+            deletedAt: null,
+            isActive: true,
+            ...(variantId ? { id: variantId } : {}),
+          },
+          select: {
+            id: true,
+            name: true,
+            sku: true,
+            sizeLabel: true,
+            sizeGender: true,
+            colorName: true,
+            colorHex: true,
+            price: true,
+            salePrice: true,
+            isActive: true,
+            deletedAt: true,
+            inventory: {
+              select: {
+                quantity: true,
+                reservedQuantity: true,
+                soldOut: true,
+              },
+            },
+          },
+          ...(variantId ? { take: 1 } : {}),
+        },
+      },
     });
 
     if (!product) {
@@ -357,6 +400,13 @@ export class CartService {
                   altText: true,
                 },
               },
+              inventory: {
+                select: {
+                  quantity: true,
+                  reservedQuantity: true,
+                  soldOut: true,
+                },
+              },
             },
           },
           variant: {
@@ -369,6 +419,13 @@ export class CartService {
               colorName: true,
               colorHex: true,
               isActive: true,
+              inventory: {
+                select: {
+                  quantity: true,
+                  reservedQuantity: true,
+                  soldOut: true,
+                },
+              },
             },
           },
         },
@@ -401,19 +458,27 @@ export class CartService {
       expiresAt: cart.expiresAt,
       createdAt: cart.createdAt,
       updatedAt: cart.updatedAt,
-      items: cart.items.map((item) => ({
-        id: item.id,
-        productId: item.productId,
-        variantId: item.variantId,
-        productName: item.productName,
-        variantName: item.variantName,
-        sku: item.sku,
-        unitPrice: item.unitPrice,
-        quantity: item.quantity,
-        lineTotal: item.lineTotal,
-        product: item.product,
-        variant: item.variant,
-      })),
+      items: cart.items.map((item) => {
+        const inventory = (item.variant as any)?.inventory ?? (item.product as any)?.inventory;
+        const availableStock = inventory
+          ? Math.max(0, inventory.quantity - inventory.reservedQuantity)
+          : 99;
+
+        return {
+          id: item.id,
+          productId: item.productId,
+          variantId: item.variantId,
+          productName: item.productName,
+          variantName: item.variantName,
+          sku: item.sku,
+          unitPrice: item.unitPrice,
+          quantity: item.quantity,
+          lineTotal: item.lineTotal,
+          product: item.product,
+          variant: item.variant,
+          availableStock,
+        };
+      }),
     };
   }
 }

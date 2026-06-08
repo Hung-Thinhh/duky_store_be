@@ -513,6 +513,284 @@ export class ProductsService {
     };
   }
 
+  async getRecommendationsBySlug(slug: string, limit = 8) {
+    const current = await this.prisma.product.findFirst({
+      where: { slug, deletedAt: null, status: ProductStatus.PUBLISHED },
+      select: { id: true, originalPrice: true },
+    });
+
+    if (!current) {
+      throw new NotFoundException('Product not found');
+    }
+
+    const rows = await this.prisma.$queryRaw<AdminProductListRow[]>(
+      Prisma.sql`
+        with current_product as (
+          select p."id", p."originalPrice"
+          from "products" p
+          where p."slug" = ${slug}
+            and p."deletedAt" is null
+            and p."status" = 'PUBLISHED'
+          limit 1
+        ),
+        current_categories as (
+          select pc."categoryId"
+          from "product_categories" pc
+          join current_product cp on cp."id" = pc."productId"
+        ),
+        current_tags as (
+          select pt."tagId"
+          from "product_tags" pt
+          join current_product cp on cp."id" = pt."productId"
+        ),
+        scored_products as (
+          select
+            p."id",
+            (
+              coalesce((
+                select count(*)::int
+                from "product_categories" pc
+                where pc."productId" = p."id"
+                  and pc."categoryId" in (select "categoryId" from current_categories)
+              ), 0) * 3
+              +
+              coalesce((
+                select count(*)::int
+                from "product_tags" pt
+                where pt."productId" = p."id"
+                  and pt."tagId" in (select "tagId" from current_tags)
+              ), 0) * 2
+              +
+              case
+                when cp."originalPrice" > 0
+                  and p."originalPrice" between cp."originalPrice" * 0.7 and cp."originalPrice" * 1.3
+                then 1 else 0
+              end
+            )::int as score
+          from "products" p
+          cross join current_product cp
+          where p."deletedAt" is null
+            and p."status" = 'PUBLISHED'
+            and p."id" <> cp."id"
+        )
+        select
+          sp."score",
+          p."id",
+          p."name",
+          p."slug",
+          p."sku",
+          p."type",
+          p."status",
+          p."catalogVisibility",
+          p."originalPrice",
+          p."salePrice",
+          p."contactForPrice",
+          p."thumbnailMediaId",
+          p."isFeatured",
+          p."isBestSeller",
+          p."isNewArrival",
+          p."publishedAt",
+          p."createdAt",
+          p."updatedAt",
+          case
+            when tm."id" is null then null
+            else json_build_object(
+              'id', tm."id",
+              'url', tm."url",
+              'secureUrl', tm."secureUrl",
+              'fileName', tm."fileName",
+              'altText', tm."altText",
+              'title', tm."title",
+              'width', tm."width",
+              'height', tm."height"
+            )
+          end as "thumbnailMedia",
+          img."image",
+          case
+            when inv."id" is null then null
+            else json_build_object(
+              'id', inv."id",
+              'quantity', inv."quantity",
+              'reservedQuantity', inv."reservedQuantity",
+              'lowStockThreshold', inv."lowStockThreshold",
+              'soldOut', inv."soldOut",
+              'createdAt', inv."createdAt",
+              'updatedAt', inv."updatedAt"
+            )
+          end as "inventory",
+          coalesce(vs."allVariantsSoldOut", false) as "allVariantsSoldOut"
+        from scored_products sp
+        join "products" p on p."id" = sp."id"
+        left join "media" tm on tm."id" = p."thumbnailMediaId"
+        left join "inventories" inv on inv."productId" = p."id"
+        left join lateral (
+          select
+            bool_and(vi."soldOut") as "allVariantsSoldOut"
+          from "product_variants" pv
+          left join "inventories" vi on vi."variantId" = pv."id"
+          where pv."productId" = p."id"
+            and pv."deletedAt" is null
+        ) vs on true
+        left join lateral (
+          select json_build_object(
+            'id', pi."id",
+            'mediaId', pi."mediaId",
+            'altText', pi."altText",
+            'sortOrder', pi."sortOrder",
+            'isPrimary', pi."isPrimary",
+            'media', json_build_object(
+              'id', pm."id",
+              'url', pm."url",
+              'secureUrl', pm."secureUrl",
+              'fileName', pm."fileName",
+              'altText', pm."altText",
+              'title', pm."title",
+              'width', pm."width",
+              'height', pm."height"
+            )
+          ) as "image"
+          from "product_images" pi
+          join "media" pm on pm."id" = pi."mediaId"
+          where pi."productId" = p."id"
+          order by pi."isPrimary" desc, pi."sortOrder" asc, pi."createdAt" asc
+          limit 1
+        ) img on true
+        where sp."score" > 0
+        order by sp."score" desc, p."publishedAt" desc
+        limit ${limit}
+      `,
+    );
+
+    if (rows.length < limit) {
+      const existingIds = rows.map((r) => r.id);
+      const fallback = await this.prisma.$queryRaw<AdminProductListRow[]>(
+        Prisma.sql`
+          select
+            p."id",
+            p."name",
+            p."slug",
+            p."sku",
+            p."type",
+            p."status",
+            p."catalogVisibility",
+            p."originalPrice",
+            p."salePrice",
+            p."contactForPrice",
+            p."thumbnailMediaId",
+            p."isFeatured",
+            p."isBestSeller",
+            p."isNewArrival",
+            p."publishedAt",
+            p."createdAt",
+            p."updatedAt",
+            case
+              when tm."id" is null then null
+              else json_build_object(
+                'id', tm."id",
+                'url', tm."url",
+                'secureUrl', tm."secureUrl",
+                'fileName', tm."fileName",
+                'altText', tm."altText",
+                'title', tm."title",
+                'width', tm."width",
+                'height', tm."height"
+              )
+            end as "thumbnailMedia",
+            img."image",
+            case
+              when inv."id" is null then null
+              else json_build_object(
+                'id', inv."id",
+                'quantity', inv."quantity",
+                'reservedQuantity', inv."reservedQuantity",
+                'lowStockThreshold', inv."lowStockThreshold",
+                'soldOut', inv."soldOut",
+                'createdAt', inv."createdAt",
+                'updatedAt', inv."updatedAt"
+              )
+            end as "inventory",
+            coalesce(vs."allVariantsSoldOut", false) as "allVariantsSoldOut"
+          from "products" p
+          left join "media" tm on tm."id" = p."thumbnailMediaId"
+          left join "inventories" inv on inv."productId" = p."id"
+          left join lateral (
+            select
+              bool_and(vi."soldOut") as "allVariantsSoldOut"
+            from "product_variants" pv
+            left join "inventories" vi on vi."variantId" = pv."id"
+            where pv."productId" = p."id"
+              and pv."deletedAt" is null
+          ) vs on true
+          left join lateral (
+            select json_build_object(
+              'id', pi."id",
+              'mediaId', pi."mediaId",
+              'altText', pi."altText",
+              'sortOrder', pi."sortOrder",
+              'isPrimary', pi."isPrimary",
+              'media', json_build_object(
+                'id', pm."id",
+                'url', pm."url",
+                'secureUrl', pm."secureUrl",
+                'fileName', pm."fileName",
+                'altText', pm."altText",
+                'title', pm."title",
+                'width', pm."width",
+                'height', pm."height"
+              )
+            ) as "image"
+            from "product_images" pi
+            join "media" pm on pm."id" = pi."mediaId"
+            where pi."productId" = p."id"
+            order by pi."isPrimary" desc, pi."sortOrder" asc, pi."createdAt" asc
+            limit 1
+          ) img on true
+          where p."deletedAt" is null
+            and p."status" = 'PUBLISHED'
+            and p."id" <> ${current.id}
+            and p."id" not in (${Prisma.join(existingIds.length ? existingIds : ['__none__'])})
+          order by p."publishedAt" desc
+          limit ${limit - rows.length}
+        `,
+      );
+      rows.push(...fallback);
+    }
+
+    return {
+      data: rows.map((row) => {
+        const recommendationRow = row as AdminProductListRow & {
+          allVariantsSoldOut: boolean;
+        };
+        const item: ProductListItem = {
+          id: row.id,
+          name: row.name,
+          slug: row.slug,
+          sku: row.sku,
+          type: row.type,
+          status: row.status,
+          catalogVisibility: row.catalogVisibility,
+          originalPrice: row.originalPrice,
+          salePrice: row.salePrice,
+          contactForPrice: row.contactForPrice,
+          thumbnailMediaId: row.thumbnailMediaId,
+          thumbnailMedia: row.thumbnailMedia,
+          isFeatured: row.isFeatured,
+          isBestSeller: row.isBestSeller,
+          isNewArrival: row.isNewArrival,
+          publishedAt: row.publishedAt,
+          createdAt: row.createdAt,
+          updatedAt: row.updatedAt,
+          images: row.image ? [row.image] : [],
+          inventory: row.inventory,
+        };
+        return {
+          ...this.toProductListItem(item),
+          allVariantsSoldOut: recommendationRow.allVariantsSoldOut ?? false,
+        };
+      }),
+    };
+  }
+
   async update(id: string, updateDto: UpdateProductDto, userId: string) {
     const existing = await this.getProductOrThrow(id);
     await this.assertMediaExists(updateDto.thumbnailMediaId);
