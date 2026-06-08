@@ -29,6 +29,7 @@ import { ProductImageDto } from './dto/product-image.dto';
 import { ProductRelationsDto } from './dto/product-relations.dto';
 import { ProductShippingProfileDto } from './dto/product-shipping-profile.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { SettingsService } from '../settings/settings.service';
 
 type ProductMedia = {
   id: string;
@@ -271,7 +272,10 @@ type PreparedProductRelations = {
 
 @Injectable()
 export class ProductsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly settingsService: SettingsService,
+  ) {}
 
   async listAdmin(query: ListAdminProductsQueryDto) {
     const page = query.page ?? 1;
@@ -297,6 +301,11 @@ export class ProductsService {
   }
 
   async listPublic(query: ListProductsQueryDto) {
+    // Use smart search when search query is present
+    if (query.search?.trim()) {
+      return this.smartSearchProducts(query);
+    }
+
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
 
@@ -365,6 +374,274 @@ export class ProductsService {
       data: products.map((product) =>
         this.toProductListItem(product as unknown as ProductListItem),
       ),
+      pagination: this.toPagination(page, limit, total),
+    };
+  }
+
+  async smartSearchProducts(query: ListProductsQueryDto) {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const search = query.search!.trim();
+    const rawKeywords = search
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((k) => k.length > 0);
+
+    if (rawKeywords.length === 0) {
+      return { data: [], pagination: this.toPagination(page, limit, 0) };
+    }
+
+    // Load synonym map from Settings
+    const synonymMap = await this.loadSynonymMap();
+
+    // Expand keywords with synonyms
+    const expandedSet = new Set<string>();
+    for (const keyword of rawKeywords) {
+      expandedSet.add(keyword);
+      if (synonymMap[keyword]) {
+        for (const synonym of synonymMap[keyword]) {
+          expandedSet.add(synonym.toLowerCase());
+        }
+      }
+    }
+    const keywords = Array.from(expandedSet);
+
+    // Build scoring expression for each keyword
+    const scoreParts: Prisma.Sql[] = [];
+    const matchConditions: Prisma.Sql[] = [];
+
+    for (const keyword of keywords) {
+      const pattern = `%${keyword}%`;
+
+      scoreParts.push(Prisma.sql`
+        CASE WHEN p."name" ILIKE ${pattern} THEN 8 ELSE 0 END
+        + CASE WHEN EXISTS (
+            SELECT 1 FROM "product_tags" pt
+            JOIN "tags" t ON t."id" = pt."tagId"
+            WHERE pt."productId" = p."id"
+              AND t."name" ILIKE ${pattern}
+              AND t."deletedAt" IS NULL
+          ) THEN 6 ELSE 0 END
+        + CASE WHEN EXISTS (
+            SELECT 1 FROM "product_categories" pc
+            JOIN "categories" c ON c."id" = pc."categoryId"
+            WHERE pc."productId" = p."id"
+              AND c."name" ILIKE ${pattern}
+              AND c."deletedAt" IS NULL
+          ) THEN 4 ELSE 0 END
+        + CASE WHEN p."shortDescription" ILIKE ${pattern} THEN 2 ELSE 0 END
+        + CASE WHEN p."description" ILIKE ${pattern} THEN 1 ELSE 0 END
+      `);
+
+      matchConditions.push(
+        Prisma.sql`p."name" ILIKE ${pattern}`,
+        Prisma.sql`p."shortDescription" ILIKE ${pattern}`,
+        Prisma.sql`p."description" ILIKE ${pattern}`,
+        Prisma.sql`EXISTS (
+          SELECT 1 FROM "product_tags" pt
+          JOIN "tags" t ON t."id" = pt."tagId"
+          WHERE pt."productId" = p."id"
+            AND t."name" ILIKE ${pattern}
+            AND t."deletedAt" IS NULL
+        )`,
+        Prisma.sql`EXISTS (
+          SELECT 1 FROM "product_categories" pc
+          JOIN "categories" c ON c."id" = pc."categoryId"
+          WHERE pc."productId" = p."id"
+            AND c."name" ILIKE ${pattern}
+            AND c."deletedAt" IS NULL
+        )`,
+      );
+    }
+
+    const scoreExpr = scoreParts.reduce(
+      (acc, part) => Prisma.sql`${acc} + ${part}`,
+    );
+    const matchWhere = matchConditions.reduce(
+      (acc, cond) => Prisma.sql`${acc} OR ${cond}`,
+    );
+
+    // Additional filters
+    const filters: Prisma.Sql[] = [
+      Prisma.sql`p."deletedAt" IS NULL`,
+      Prisma.sql`p."status" = 'PUBLISHED'`,
+      Prisma.sql`(${matchWhere})`,
+    ];
+
+    // Category filter
+    if (query.categorySlug?.trim()) {
+      filters.push(
+        Prisma.sql`EXISTS (
+          SELECT 1 FROM "product_categories" pc
+          JOIN "categories" c ON c."id" = pc."categoryId"
+          WHERE pc."productId" = p."id"
+            AND c."slug" = ${query.categorySlug.trim()}
+            AND c."deletedAt" IS NULL
+        )`,
+      );
+    }
+
+    // Tag filter
+    if (query.tagSlug?.trim()) {
+      filters.push(
+        Prisma.sql`EXISTS (
+          SELECT 1 FROM "product_tags" pt
+          JOIN "tags" t ON t."id" = pt."tagId"
+          WHERE pt."productId" = p."id"
+            AND t."slug" = ${query.tagSlug.trim()}
+            AND t."deletedAt" IS NULL
+        )`,
+      );
+    }
+
+    // Price filter
+    if (query.minPrice !== undefined) {
+      filters.push(Prisma.sql`p."originalPrice" >= ${query.minPrice}`);
+    }
+    if (query.maxPrice !== undefined) {
+      filters.push(Prisma.sql`p."originalPrice" <= ${query.maxPrice}`);
+    }
+
+    const whereSql = Prisma.join(filters, ' AND ');
+    const offset = (page - 1) * limit;
+
+    const rows = await this.prisma.$queryRaw<
+      (AdminProductListRow & { score: number })[]
+    >(Prisma.sql`
+      WITH scored_products AS (
+        SELECT
+          p."id",
+          (${scoreExpr}
+            + CASE WHEN p."isBestSeller" THEN 3 ELSE 0 END
+            + CASE WHEN p."isFeatured" THEN 2 ELSE 0 END
+          )::int AS score
+        FROM "products" p
+        WHERE ${whereSql}
+      )
+      SELECT
+        sp."score",
+        count(*) OVER()::int AS "totalCount",
+        p."id",
+        p."name",
+        p."slug",
+        p."sku",
+        p."type",
+        p."status",
+        p."catalogVisibility",
+        p."originalPrice",
+        p."salePrice",
+        p."contactForPrice",
+        p."thumbnailMediaId",
+        p."isFeatured",
+        p."isBestSeller",
+        p."isNewArrival",
+        p."publishedAt",
+        p."createdAt",
+        p."updatedAt",
+        CASE
+          WHEN tm."id" IS NULL THEN NULL
+          ELSE json_build_object(
+            'id', tm."id",
+            'url', tm."url",
+            'secureUrl', tm."secureUrl",
+            'fileName', tm."fileName",
+            'altText', tm."altText",
+            'title', tm."title",
+            'width', tm."width",
+            'height', tm."height"
+          )
+        END AS "thumbnailMedia",
+        img."image",
+        CASE
+          WHEN inv."id" IS NULL THEN NULL
+          ELSE json_build_object(
+            'id', inv."id",
+            'quantity', inv."quantity",
+            'reservedQuantity', inv."reservedQuantity",
+            'lowStockThreshold', inv."lowStockThreshold",
+            'soldOut', inv."soldOut",
+            'createdAt', inv."createdAt",
+            'updatedAt', inv."updatedAt"
+          )
+        END AS "inventory",
+        coalesce(vs."allVariantsSoldOut", false) AS "allVariantsSoldOut"
+      FROM scored_products sp
+      JOIN "products" p ON p."id" = sp."id"
+      LEFT JOIN "media" tm ON tm."id" = p."thumbnailMediaId"
+      LEFT JOIN "inventories" inv ON inv."productId" = p."id"
+      LEFT JOIN LATERAL (
+        SELECT
+          bool_and(vi."soldOut") AS "allVariantsSoldOut"
+        FROM "product_variants" pv
+        LEFT JOIN "inventories" vi ON vi."variantId" = pv."id"
+        WHERE pv."productId" = p."id"
+          AND pv."deletedAt" IS NULL
+      ) vs ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT json_build_object(
+          'id', pi."id",
+          'mediaId', pi."mediaId",
+          'altText', pi."altText",
+          'sortOrder', pi."sortOrder",
+          'isPrimary', pi."isPrimary",
+          'media', json_build_object(
+            'id', pm."id",
+            'url', pm."url",
+            'secureUrl', pm."secureUrl",
+            'fileName', pm."fileName",
+            'altText', pm."altText",
+            'title', pm."title",
+            'width', pm."width",
+            'height', pm."height"
+          )
+        ) AS "image"
+        FROM "product_images" pi
+        JOIN "media" pm ON pm."id" = pi."mediaId"
+        WHERE pi."productId" = p."id"
+        ORDER BY pi."isPrimary" DESC, pi."sortOrder" ASC, pi."createdAt" ASC
+        LIMIT 1
+      ) img ON TRUE
+      WHERE sp."score" > 0
+      ORDER BY sp."score" DESC, p."publishedAt" DESC
+      OFFSET ${offset}
+      LIMIT ${limit}
+    `);
+
+    const total = rows[0]?.totalCount ?? 0;
+
+    return {
+      data: rows.map((row) => {
+        const searchRow = row as AdminProductListRow & {
+          score: number;
+          allVariantsSoldOut: boolean;
+        };
+        const item: ProductListItem = {
+          id: row.id,
+          name: row.name,
+          slug: row.slug,
+          sku: row.sku,
+          type: row.type,
+          status: row.status,
+          catalogVisibility: row.catalogVisibility,
+          originalPrice: row.originalPrice,
+          salePrice: row.salePrice,
+          contactForPrice: row.contactForPrice,
+          thumbnailMediaId: row.thumbnailMediaId,
+          thumbnailMedia: row.thumbnailMedia,
+          isFeatured: row.isFeatured,
+          isBestSeller: row.isBestSeller,
+          isNewArrival: row.isNewArrival,
+          publishedAt: row.publishedAt,
+          createdAt: row.createdAt,
+          updatedAt: row.updatedAt,
+          images: row.image ? [row.image] : [],
+          inventory: row.inventory,
+        };
+        return {
+          ...this.toProductListItem(item),
+          allVariantsSoldOut: searchRow.allVariantsSoldOut ?? false,
+        };
+      }),
       pagination: this.toPagination(page, limit, total),
     };
   }
@@ -987,6 +1264,34 @@ export class ProductsService {
     }
 
     return where;
+  }
+
+  private async loadSynonymMap(): Promise<Record<string, string[]>> {
+    try {
+      const setting = await this.settingsService.getByKey('search.synonyms');
+      const value = setting.value as Record<string, string[]>;
+      if (value && typeof value === 'object') {
+        // Build bidirectional map: if "giày" -> ["boot"], then "boot" -> ["giày"] too
+        const bidirectional: Record<string, string[]> = {};
+        for (const [term, synonyms] of Object.entries(value)) {
+          const lowerTerm = term.toLowerCase();
+          if (!bidirectional[lowerTerm]) bidirectional[lowerTerm] = [];
+          for (const synonym of synonyms) {
+            const lowerSynonym = synonym.toLowerCase();
+            bidirectional[lowerTerm].push(lowerSynonym);
+            // Add reverse mapping
+            if (!bidirectional[lowerSynonym]) bidirectional[lowerSynonym] = [];
+            if (!bidirectional[lowerSynonym].includes(lowerTerm)) {
+              bidirectional[lowerSynonym].push(lowerTerm);
+            }
+          }
+        }
+        return bidirectional;
+      }
+    } catch {
+      // Setting not found — no synonyms available
+    }
+    return {};
   }
 
   private getPublicOrderBy(

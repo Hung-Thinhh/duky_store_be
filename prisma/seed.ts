@@ -245,6 +245,32 @@ const settings = [
     isPublic: true,
     description: 'Meta description mặc định',
   },
+  {
+    key: 'search.synonyms',
+    group: 'search',
+    value: {
+      'giày': ['boot', 'bốt', 'giày boot'],
+      'boot': ['giày', 'giày boot', 'bốt'],
+      'sandal': ['dép', 'dép sandal'],
+      'dép': ['sandal', 'dép sandal'],
+      'túi': ['bag', 'ví'],
+      'bag': ['túi', 'ví'],
+      'ví': ['túi', 'bag'],
+      'áo khoác': ['jacket', 'áo jacket'],
+      'jacket': ['áo khoác', 'áo jacket'],
+      'đi chơi': ['dạo phố', 'đi dạo'],
+      'dạo phố': ['đi chơi', 'đi dạo'],
+      'công sở': ['đi làm', 'văn phòng'],
+      'đi làm': ['công sở', 'văn phòng'],
+      'tết': ['xuân', 'ngày tết', 'năm mới'],
+      'xuân': ['tết', 'ngày tết', 'năm mới'],
+      'da': ['leather', 'da thật'],
+      'leather': ['da', 'da thật'],
+    },
+    valueType: 'JSON',
+    isPublic: false,
+    description: 'Từ đồng nghĩa cho tìm kiếm thông minh',
+  },
 ] as const;
 
 const notificationTemplates = [
