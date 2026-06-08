@@ -56,3 +56,12 @@ pids
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 /generated/prisma
+
+# Google Search Console local data and credentials
+.gsc/
+secrets/
+*service-account*.json
+duky-ai-*.json
+*gserviceaccount*.json
+docs/seo/gsc-exports/
+docs/seo/gsc-results/

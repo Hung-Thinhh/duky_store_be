@@ -9,9 +9,10 @@ import { AdminBlogPostsController } from './blog-posts-admin.controller';
 import { BlogPostsService } from './blog-posts.service';
 import { AdminBlogReusableBlocksController } from './blog-reusable-blocks-admin.controller';
 import { BlogReusableBlocksService } from './blog-reusable-blocks.service';
+import { SeoModule } from '../seo/seo.module';
 
 @Module({
-  imports: [MediaModule],
+  imports: [MediaModule, SeoModule],
   controllers: [
     AdminBlogAiController,
     AdminBlogCategoriesController,

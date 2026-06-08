@@ -21,6 +21,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
   constructor(private readonly configService: ConfigService) {}
 
   catch(exception: unknown, host: ArgumentsHost) {
+    console.error('=== NestJS Exception Caught ===', exception);
     const context = host.switchToHttp();
     const response = context.getResponse<Response>();
     const request = context.getRequest<Request>();

@@ -4,7 +4,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
+  CategoryStatus,
   ContentStatus,
   Prisma,
   ProductStatus,
@@ -19,7 +21,10 @@ import { UpdateRedirectDto } from './dto/update-redirect.dto';
 
 @Injectable()
 export class SeoService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly configService: ConfigService,
+  ) {}
 
   async getMetadata(query: SeoMetadataQueryDto) {
     const metadata = await this.prisma.seoMetadata.findUnique({
@@ -75,15 +80,39 @@ export class SeoService {
   }
 
   async renderSitemap() {
+    const noIndexMetadata = await this.prisma.seoMetadata.findMany({
+      where: { noIndex: true },
+      select: { entityType: true, entityId: true },
+    });
+
+    const noIndexSet = new Set(
+      noIndexMetadata.map((meta) => `${meta.entityType}:${meta.entityId}`),
+    );
+
     const configuredEntries = await this.prisma.sitemapEntry.findMany({
       where: { isActive: true },
       orderBy: { url: 'asc' },
     });
-    const generatedEntries = await this.getGeneratedSitemapEntries();
-    const entries = [...configuredEntries, ...generatedEntries];
+
+    const activeConfiguredEntries = configuredEntries.filter((entry) => {
+      if (entry.entityType && entry.entityId) {
+        return !noIndexSet.has(`${entry.entityType}:${entry.entityId}`);
+      }
+      return true;
+    });
+
+    const generatedEntries = await this.getGeneratedSitemapEntries(noIndexSet);
+    const entries = [...activeConfiguredEntries, ...generatedEntries];
+
     const uniqueEntries = Array.from(
-      new Map(entries.map((entry) => [entry.url, entry])).values(),
+      new Map(
+        entries.map((entry) => {
+          const absoluteUrl = this.toAbsoluteUrl(entry.url);
+          return [absoluteUrl, { ...entry, url: absoluteUrl }];
+        }),
+      ).values(),
     );
+
 
     return [
       '<?xml version="1.0" encoding="UTF-8"?>',
@@ -106,7 +135,7 @@ export class SeoService {
         ])
       : ['User-agent: *', 'Allow: /', ''];
 
-    lines.push('Sitemap: /api/v1/sitemap.xml');
+    lines.push(`Sitemap: ${this.toAbsoluteUrl('/sitemap.xml')}`);
 
     return lines.join('\n');
   }
@@ -201,7 +230,7 @@ export class SeoService {
     });
   }
 
-  private async getGeneratedSitemapEntries() {
+  private async getGeneratedSitemapEntries(noIndexSet: Set<string>) {
     const [products, categories, blogPosts, blogCategories] =
       await this.prisma.$transaction([
         this.prisma.product.findMany({
@@ -212,7 +241,7 @@ export class SeoService {
           select: { id: true, slug: true, updatedAt: true, publishedAt: true },
         }),
         this.prisma.category.findMany({
-          where: { deletedAt: null },
+          where: { deletedAt: null, status: CategoryStatus.ACTIVE },
           select: { id: true, slug: true, updatedAt: true },
         }),
         this.prisma.blogPost.findMany({
@@ -232,39 +261,64 @@ export class SeoService {
       ]);
 
     return [
-      ...products.map((product) => ({
-        url: `/san-pham/${product.slug}`,
-        entityType: SeoEntityType.PRODUCT,
-        entityId: product.id,
-        priority: 0.8,
-        changefreq: 'weekly',
-        lastmod: product.publishedAt ?? product.updatedAt,
-      })),
-      ...categories.map((category) => ({
-        url: `/danh-muc/${category.slug}`,
-        entityType: SeoEntityType.CATEGORY,
-        entityId: category.id,
-        priority: 0.7,
-        changefreq: 'weekly',
-        lastmod: category.updatedAt,
-      })),
-      ...blogPosts.map((post) => ({
-        url: `/blog/${post.slug}`,
-        entityType: SeoEntityType.BLOG_POST,
-        entityId: post.id,
-        priority: 0.6,
-        changefreq: 'monthly',
-        lastmod: post.publishedAt ?? post.updatedAt,
-      })),
-      ...blogCategories.map((category) => ({
-        url: `/blog/categories/${category.slug}`,
-        entityType: SeoEntityType.BLOG_CATEGORY,
-        entityId: category.id,
-        priority: 0.5,
-        changefreq: 'monthly',
-        lastmod: category.updatedAt,
-      })),
+      ...products
+        .filter((product) => !noIndexSet.has(`${SeoEntityType.PRODUCT}:${product.id}`))
+        .map((product) => ({
+          url: `/san-pham/${product.slug}`,
+          entityType: SeoEntityType.PRODUCT,
+          entityId: product.id,
+          priority: 0.8,
+          changefreq: 'weekly',
+          lastmod: product.publishedAt ?? product.updatedAt,
+        })),
+      ...categories
+        .filter((category) => !noIndexSet.has(`${SeoEntityType.CATEGORY}:${category.id}`))
+        .map((category) => ({
+          url: `/danh-muc/${category.slug}`,
+          entityType: SeoEntityType.CATEGORY,
+          entityId: category.id,
+          priority: 0.7,
+          changefreq: 'weekly',
+          lastmod: category.updatedAt,
+        })),
+      ...blogPosts
+        .filter((post) => !noIndexSet.has(`${SeoEntityType.BLOG_POST}:${post.id}`))
+        .map((post) => ({
+          url: `/blog/${post.slug}`,
+          entityType: SeoEntityType.BLOG_POST,
+          entityId: post.id,
+          priority: 0.6,
+          changefreq: 'monthly',
+          lastmod: post.publishedAt ?? post.updatedAt,
+        })),
+      ...blogCategories
+        .filter((category) => !noIndexSet.has(`${SeoEntityType.BLOG_CATEGORY}:${category.id}`))
+        .map((category) => ({
+          url: `/blog/categories/${category.slug}`,
+          entityType: SeoEntityType.BLOG_CATEGORY,
+          entityId: category.id,
+          priority: 0.5,
+          changefreq: 'monthly',
+          lastmod: category.updatedAt,
+        })),
     ];
+  }
+
+  private toAbsoluteUrl(url: string): string {
+    const trimmed = url.trim();
+    let baseUrl =
+      this.configService.get<string>('PUBLIC_SITE_URL') ??
+      this.configService.get<string>('GSC_PUBLIC_BASE_URL') ??
+      'https://dukystore.com';
+
+    baseUrl = baseUrl.replace(/\/+$/, '');
+
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      return trimmed;
+    }
+
+    const path = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+    return `${baseUrl}${path}`;
   }
 
   private renderSitemapUrl(entry: {

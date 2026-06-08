@@ -17,6 +17,7 @@ import {
 } from '../../../generated/prisma/client';
 import { slugify } from '../../common/utils/slug.util';
 import { PrismaService } from '../../database/prisma.service';
+import { GscService } from '../seo/gsc.service';
 import { SeoMetadataDto } from '../categories/dto/seo-metadata.dto';
 import { UpsertInventoryDto } from '../inventory/dto/upsert-inventory.dto';
 import { CreateProductDto } from './dto/create-product.dto';
@@ -271,7 +272,10 @@ type PreparedProductRelations = {
 
 @Injectable()
 export class ProductsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly gscService: GscService,
+  ) {}
 
   async listAdmin(query: ListAdminProductsQueryDto) {
     const page = query.page ?? 1;
@@ -435,6 +439,20 @@ export class ProductsService {
       return created;
     });
 
+    if (product.status === ProductStatus.PUBLISHED) {
+      try {
+        await this.gscService.submitIndexing({
+          url: `/san-pham/${product.slug}`,
+          type: 'URL_UPDATED',
+        });
+      } catch (error) {
+        console.error(
+          'Failed to submit product to Google Indexing API on creation',
+          error,
+        );
+      }
+    }
+
     return this.getById(product.id);
   }
 
@@ -593,15 +611,67 @@ export class ProductsService {
       await this.upsertSeo(tx, id, updateDto.seo);
     });
 
+    const updated = await this.getProductOrThrow(id);
+
+    const wasPublished = existing.status === ProductStatus.PUBLISHED;
+    const isPublished = updated.status === ProductStatus.PUBLISHED;
+
+    if (isPublished) {
+      try {
+        await this.gscService.submitIndexing({
+          url: `/san-pham/${updated.slug}`,
+          type: 'URL_UPDATED',
+        });
+
+        if (wasPublished && existing.slug !== updated.slug) {
+          await this.gscService.submitIndexing({
+            url: `/san-pham/${existing.slug}`,
+            type: 'URL_DELETED',
+          });
+        }
+      } catch (error) {
+        console.error(
+          'Failed to submit product to Google Indexing API on update',
+          error,
+        );
+      }
+    } else if (wasPublished && !isPublished) {
+      try {
+        await this.gscService.submitIndexing({
+          url: `/san-pham/${existing.slug}`,
+          type: 'URL_DELETED',
+        });
+      } catch (error) {
+        console.error(
+          'Failed to request Google indexing removal on product status change',
+          error,
+        );
+      }
+    }
+
     return this.getById(id);
   }
 
   async remove(id: string) {
-    await this.getProductOrThrow(id);
+    const existing = await this.getProductOrThrow(id);
     await this.prisma.product.update({
       where: { id },
       data: { deletedAt: new Date(), status: ProductStatus.HIDDEN },
     });
+
+    if (existing.status === ProductStatus.PUBLISHED) {
+      try {
+        await this.gscService.submitIndexing({
+          url: `/san-pham/${existing.slug}`,
+          type: 'URL_DELETED',
+        });
+      } catch (error) {
+        console.error(
+          'Failed to request Google indexing removal on product deletion',
+          error,
+        );
+      }
+    }
 
     return { success: true };
   }

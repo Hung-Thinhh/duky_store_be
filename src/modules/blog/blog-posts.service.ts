@@ -19,6 +19,7 @@ import {
   ListBlogPostsQueryDto,
 } from './dto/list-blog-posts-query.dto';
 import { UpdateBlogPostDto } from './dto/update-blog-post.dto';
+import { GscService } from '../seo/gsc.service';
 
 type SeoData = Omit<
   Prisma.SeoMetadataUncheckedCreateInput,
@@ -27,7 +28,10 @@ type SeoData = Omit<
 
 @Injectable()
 export class BlogPostsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly gscService: GscService,
+  ) {}
 
   async listAdmin(query: ListBlogPostsQueryDto) {
     const t0 = Date.now();
@@ -182,6 +186,17 @@ export class BlogPostsService {
       return created;
     });
 
+    if (post.status === ContentStatus.PUBLISHED) {
+      try {
+        await this.gscService.submitIndexing({
+          url: `/blog/${post.slug}`,
+          type: 'URL_UPDATED',
+        });
+      } catch (error) {
+        console.error('Failed to submit blog post to Google Indexing API on creation', error);
+      }
+    }
+
     return this.getById(post.id);
   }
 
@@ -247,15 +262,58 @@ export class BlogPostsService {
       await this.upsertSeo(tx, id, updateDto.seo);
     });
 
-    return this.getById(id);
+    const updated = await this.getById(id);
+
+    const wasPublished = existing.status === ContentStatus.PUBLISHED;
+    const isPublished = updated.status === ContentStatus.PUBLISHED;
+
+    if (isPublished) {
+      try {
+        await this.gscService.submitIndexing({
+          url: `/blog/${updated.slug}`,
+          type: 'URL_UPDATED',
+        });
+
+        if (wasPublished && existing.slug !== updated.slug) {
+          await this.gscService.submitIndexing({
+            url: `/blog/${existing.slug}`,
+            type: 'URL_DELETED',
+          });
+        }
+      } catch (error) {
+        console.error('Failed to submit blog post to Google Indexing API on update', error);
+      }
+    } else if (wasPublished && !isPublished) {
+      try {
+        await this.gscService.submitIndexing({
+          url: `/blog/${existing.slug}`,
+          type: 'URL_DELETED',
+        });
+      } catch (error) {
+        console.error('Failed to request Google indexing removal on status change', error);
+      }
+    }
+
+    return updated;
   }
 
   async remove(id: string) {
-    await this.getPostOrThrow(id);
+    const existing = await this.getPostOrThrow(id);
     await this.prisma.blogPost.update({
       where: { id },
       data: { deletedAt: new Date(), status: ContentStatus.HIDDEN },
     });
+
+    if (existing.status === ContentStatus.PUBLISHED) {
+      try {
+        await this.gscService.submitIndexing({
+          url: `/blog/${existing.slug}`,
+          type: 'URL_DELETED',
+        });
+      } catch (error) {
+        console.error('Failed to request Google indexing removal on post deletion', error);
+      }
+    }
 
     return { success: true };
   }

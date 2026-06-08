@@ -15,6 +15,7 @@ import { CreateCategoryDto } from './dto/create-category.dto';
 import { ListCategoriesQueryDto } from './dto/list-categories-query.dto';
 import { SeoMetadataDto } from './dto/seo-metadata.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
+import { GscService } from '../seo/gsc.service';
 
 type CategoryWithRelations = NonNullable<
   Awaited<ReturnType<CategoriesService['findCategoryById']>>
@@ -27,7 +28,10 @@ type SeoData = Omit<
 
 @Injectable()
 export class CategoriesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly gscService: GscService,
+  ) {}
 
   async list(query: ListCategoriesQueryDto) {
     const page = query.page;
@@ -95,6 +99,20 @@ export class CategoriesService {
 
     await this.upsertSeo(category.id, createDto.seo);
 
+    if (category.status === CategoryStatus.ACTIVE) {
+      try {
+        await this.gscService.submitIndexing({
+          url: `/danh-muc/${category.slug}`,
+          type: 'URL_UPDATED',
+        });
+      } catch (error) {
+        console.error(
+          'Failed to submit category to Google Indexing API on creation',
+          error,
+        );
+      }
+    }
+
     return this.getById(category.id);
   }
 
@@ -125,7 +143,7 @@ export class CategoriesService {
   }
 
   async update(id: string, updateDto: UpdateCategoryDto) {
-    await this.getCategoryOrThrow(id);
+    const existing = await this.getCategoryOrThrow(id);
     await this.assertValidParent(updateDto.parentId, id);
     await this.assertMediaExists(updateDto.imageMediaId);
     await this.assertMediaExists(updateDto.seo?.ogImageMediaId);
@@ -144,15 +162,66 @@ export class CategoriesService {
 
     await this.upsertSeo(id, updateDto.seo);
 
+    const updated = await this.getCategoryOrThrow(id);
+    const wasActive = existing.status === CategoryStatus.ACTIVE;
+    const isActive = updated.status === CategoryStatus.ACTIVE;
+
+    if (isActive) {
+      try {
+        await this.gscService.submitIndexing({
+          url: `/danh-muc/${updated.slug}`,
+          type: 'URL_UPDATED',
+        });
+
+        if (wasActive && existing.slug !== updated.slug) {
+          await this.gscService.submitIndexing({
+            url: `/danh-muc/${existing.slug}`,
+            type: 'URL_DELETED',
+          });
+        }
+      } catch (error) {
+        console.error(
+          'Failed to submit category to Google Indexing API on update',
+          error,
+        );
+      }
+    } else if (wasActive && !isActive) {
+      try {
+        await this.gscService.submitIndexing({
+          url: `/danh-muc/${existing.slug}`,
+          type: 'URL_DELETED',
+        });
+      } catch (error) {
+        console.error(
+          'Failed to request Google indexing removal on category status change',
+          error,
+        );
+      }
+    }
+
     return this.getById(id);
   }
 
   async remove(id: string) {
-    await this.getCategoryOrThrow(id);
+    const existing = await this.getCategoryOrThrow(id);
     await this.prisma.category.update({
       where: { id },
       data: { deletedAt: new Date() },
     });
+
+    if (existing.status === CategoryStatus.ACTIVE) {
+      try {
+        await this.gscService.submitIndexing({
+          url: `/danh-muc/${existing.slug}`,
+          type: 'URL_DELETED',
+        });
+      } catch (error) {
+        console.error(
+          'Failed to request Google indexing removal on category deletion',
+          error,
+        );
+      }
+    }
 
     return { success: true };
   }

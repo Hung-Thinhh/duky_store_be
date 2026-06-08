@@ -1661,6 +1661,25 @@ model SitemapEntry {
   @@map("sitemap_entries")
 }
 
+model GscInspection {
+  id                     String    @id @default(cuid())
+  inspectionUrl          String    @unique
+  verdict                String?
+  coverageState          String?
+  indexingState          String?
+  pageFetchState         String?
+  robotsTxtState         String?
+  mobileUsabilityVerdict String?
+  richResultsVerdict     String?
+  googleCanonical        String?
+  userCanonical          String?
+  lastCrawlTime          String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@map("gsc_inspections")
+}
+
 model RobotsRule {
   id        String   @id @default(cuid())
   userAgent String   @default("*")
