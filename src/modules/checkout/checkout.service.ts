@@ -60,7 +60,7 @@ export class CheckoutService {
         throw new BadRequestException('Cart is empty');
       }
 
-      const normalizedItems = cart.items.map((item) => {
+      const normalizedItems = await Promise.all(cart.items.map(async (item) => {
         if (
           !item.product ||
           item.product.deletedAt ||
@@ -77,11 +77,33 @@ export class CheckoutService {
           );
         }
 
-        const inventory = item.variant?.inventory ?? item.product.inventory;
+        const rawInventory = item.variant?.inventory ?? item.product.inventory;
 
-        if (!inventory || inventory.soldOut) {
+        if (!rawInventory || rawInventory.soldOut) {
           throw new BadRequestException(
             `Product ${item.productName} is out of stock`,
+          );
+        }
+
+        // Re-fetch inventory with pessimistic lock to prevent race conditions
+        const [lockedInventory] = await tx.$queryRaw<
+          { id: string; quantity: number; reservedQuantity: number; soldOut: boolean }[]
+        >`
+          SELECT id, quantity, "reservedQuantity", "soldOut"
+          FROM inventories
+          WHERE id = ${rawInventory.id}
+          FOR UPDATE
+        `;
+
+        if (!lockedInventory || lockedInventory.soldOut) {
+          throw new BadRequestException(
+            `Product ${item.productName} is out of stock`,
+          );
+        }
+
+        if (item.quantity > lockedInventory.quantity - lockedInventory.reservedQuantity) {
+          throw new BadRequestException(
+            `Requested quantity exceeds stock for ${item.productName}`,
           );
         }
 
@@ -92,27 +114,21 @@ export class CheckoutService {
           item.product.originalPrice;
         const lineTotal = unitPrice * item.quantity;
 
-        if (item.quantity > inventory.quantity - inventory.reservedQuantity) {
-          throw new BadRequestException(
-            `Requested quantity exceeds stock for ${item.productName}`,
-          );
-        }
-
         return {
           cartItem: item,
-          inventory,
+          inventory: lockedInventory,
           unitPrice,
           lineTotal,
         };
-      });
+      }));
 
       const subtotal = normalizedItems.reduce(
         (sum, item) => sum + item.lineTotal,
         0,
       );
       const discountTotal = 0;
-      const shippingFee = await this.resolveShippingFee(tx, subtotal);
-      const grandTotal = subtotal - discountTotal + shippingFee;
+      const shippingFee = 0;
+      const grandTotal = subtotal - discountTotal;
       const customer = await this.findOrCreateCustomer(tx, checkoutDto);
       const order = await tx.order.create({
         data: {
@@ -173,7 +189,12 @@ export class CheckoutService {
         },
       });
 
-      for (const item of normalizedItems) {
+      // Sort by inventory ID to prevent deadlocks when multiple items are checked out
+      const sortedItems = [...normalizedItems].sort((a, b) =>
+        a.inventory.id.localeCompare(b.inventory.id),
+      );
+
+      for (const item of sortedItems) {
         const orderItem = await tx.orderItem.create({
           data: {
             orderId: order.id,
