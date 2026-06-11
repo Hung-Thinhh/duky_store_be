@@ -17,6 +17,11 @@ export class CreateProductVariantDto {
   @IsString()
   name?: string;
 
+  @ApiPropertyOptional({ example: 'product-id-uuid' })
+  @IsOptional()
+  @IsString()
+  productId?: string;
+
   @ApiProperty({ example: 'BOOT-BLACK-42' })
   @IsString()
   sku: string;

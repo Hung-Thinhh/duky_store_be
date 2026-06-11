@@ -223,12 +223,16 @@ export class ProductVariantsService {
       this.prisma.productVariant.findFirst({
         where: {
           sku: normalizedSku,
+          deletedAt: null,
           ...(id ? { NOT: { id } } : {}),
         },
         select: { id: true },
       }),
       this.prisma.product.findFirst({
-        where: { sku: normalizedSku },
+        where: {
+          sku: normalizedSku,
+          deletedAt: null,
+        },
         select: { id: true },
       }),
     ]);
