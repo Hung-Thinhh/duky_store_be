@@ -475,6 +475,7 @@ model Media {
   @@index([provider])
   @@index([uploadedById])
   @@index([folder])
+  @@index([deletedAt, updatedAt(sort: Desc)])
   @@map("media")
 }
 

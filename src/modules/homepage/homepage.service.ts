@@ -36,7 +36,7 @@ export class HomepageService {
         ...(query.status ? { status: query.status } : {}),
       },
       include: this.sectionInclude(false),
-      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
+      orderBy: [{ sortOrder: 'asc' }, { updatedAt: 'desc' }],
     });
 
     return { data: sections };

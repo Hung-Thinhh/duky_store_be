@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { CopyObjectCommand, DeleteObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { randomUUID } from 'node:crypto';
 import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
@@ -85,7 +85,7 @@ export class GalleryService {
       this.prisma.galleryImage.findMany({
         where,
         include: this.galleryInclude(),
-        orderBy: { createdAt: 'desc' },
+        orderBy: { updatedAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
       }),
@@ -114,7 +114,7 @@ export class GalleryService {
     const galleryImages = await this.prisma.galleryImage.findMany({
       where,
       include: this.galleryInclude(),
-      orderBy: { createdAt: 'desc' },
+      orderBy: { updatedAt: 'desc' },
     });
 
     // Match the frontend's expected schema: { id, src, alt, forMale }
@@ -277,6 +277,55 @@ export class GalleryService {
         data.secureUrl = newUrl;
       } catch (err) {
         this.logger.warn(`Failed to rename gallery file: ${err instanceof Error ? err.message : 'Unknown error'}`);
+        // If rename fails, still update metadata but keep old file path
+      }
+    }
+
+    // If fileName is being updated for an R2 media, rename (copy + delete) on Cloudflare R2
+    if (
+      data.fileName &&
+      typeof data.fileName === 'string' &&
+      existing.provider === MediaProvider.R2 &&
+      existing.providerKey
+    ) {
+      const newFileName = data.fileName as string;
+      const ext = extname(newFileName) || extname(existing.providerKey || '');
+      const nameWithoutExt = newFileName.replace(/\.[^.]+$/, '');
+      const suffix = randomUUID().substring(0, 4);
+      const finalFileName = `${nameWithoutExt}-${suffix}${ext}`;
+      const newProviderKey = this.buildR2ObjectKey(finalFileName);
+      const bucket = this.getRequiredConfig('R2_BUCKET');
+
+      try {
+        const client = this.getR2Client();
+
+        // Copy object (requires URL encoding of the copy source)
+        await client.send(
+          new CopyObjectCommand({
+            Bucket: bucket,
+            CopySource: `${bucket}/${encodeURIComponent(existing.providerKey)}`,
+            Key: newProviderKey,
+          }),
+        );
+
+        // Delete old object
+        await client.send(
+          new DeleteObjectCommand({
+            Bucket: bucket,
+            Key: existing.providerKey,
+          }),
+        );
+
+        // Update URL, providerKey, and fileName to reflect the new file name
+        const newUrl = this.buildR2PublicUrl(newProviderKey);
+
+        data.providerKey = newProviderKey;
+        data.fileName = finalFileName;
+        data.url = newUrl;
+        data.secureUrl = newUrl;
+      } catch (err) {
+        this.logger.warn(`Failed to rename R2 gallery object: ${err instanceof Error ? err.message : 'Unknown error'}`);
+        // If R2 rename fails, keep old file path
       }
     }
 
@@ -285,6 +334,10 @@ export class GalleryService {
       data,
       include: this.galleryInclude(),
     });
+
+    if (galleryImage.url !== existing.url) {
+      await this.updateHtmlUrls(existing.url, galleryImage.url);
+    }
 
     return this.toGalleryImage(galleryImage);
   }
@@ -753,5 +806,41 @@ export class GalleryService {
       createdAt: galleryImage.createdAt,
       updatedAt: galleryImage.updatedAt,
     };
+  }
+
+  private async updateHtmlUrls(oldUrl: string, newUrl: string) {
+    try {
+      // Products description
+      await this.prisma.$executeRaw`
+        UPDATE "products" 
+        SET "description" = REPLACE("description", ${oldUrl}, ${newUrl}) 
+        WHERE "description" LIKE ${`%${oldUrl}%`}
+      `;
+      
+      // Products shortDescription
+      await this.prisma.$executeRaw`
+        UPDATE "products" 
+        SET "shortDescription" = REPLACE("shortDescription", ${oldUrl}, ${newUrl}) 
+        WHERE "shortDescription" LIKE ${`%${oldUrl}%`}
+      `;
+
+      // BlogPost content
+      await this.prisma.$executeRaw`
+        UPDATE "blog_posts" 
+        SET "content" = REPLACE("content", ${oldUrl}, ${newUrl}) 
+        WHERE "content" LIKE ${`%${oldUrl}%`}
+      `;
+
+      // Page content
+      await this.prisma.$executeRaw`
+        UPDATE "pages" 
+        SET "content" = REPLACE("content", ${oldUrl}, ${newUrl}) 
+        WHERE "content" LIKE ${`%${oldUrl}%`}
+      `;
+    } catch (error) {
+      this.logger.error(
+        `Failed to update HTML URLs: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+    }
   }
 }
