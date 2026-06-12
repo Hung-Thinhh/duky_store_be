@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   ContentStatus,
   Prisma,
@@ -17,7 +18,10 @@ import { UpdateHomepageSectionDto } from './dto/update-homepage-section.dto';
 
 @Injectable()
 export class HomepageService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly configService: ConfigService,
+  ) {}
 
   async listPublic() {
     const sections = await this.prisma.homepageSection.findMany({
@@ -67,7 +71,9 @@ export class HomepageService {
       return created;
     });
 
-    return this.getSectionById(section.id);
+    const result = await this.getSectionById(section.id);
+    this.triggerStorefrontRevalidation().catch(() => {});
+    return result;
   }
 
   async getSectionById(id: string) {
@@ -104,13 +110,16 @@ export class HomepageService {
       }
     });
 
-    return this.getSectionById(id);
+    const result = await this.getSectionById(id);
+    this.triggerStorefrontRevalidation().catch(() => {});
+    return result;
   }
 
   async removeSection(id: string) {
     await this.getSectionById(id);
     await this.prisma.homepageSection.delete({ where: { id } });
 
+    this.triggerStorefrontRevalidation().catch(() => {});
     return { success: true };
   }
 
@@ -122,7 +131,9 @@ export class HomepageService {
       data: this.buildItemCreateData(sectionId, createDto),
     });
 
-    return this.getSectionById(sectionId);
+    const result = await this.getSectionById(sectionId);
+    this.triggerStorefrontRevalidation().catch(() => {});
+    return result;
   }
 
   async updateItem(id: string, updateDto: UpdateHomepageItemDto) {
@@ -136,14 +147,18 @@ export class HomepageService {
 
     await this.prisma.homepageItem.update({ where: { id }, data });
 
-    return this.getSectionById(item.sectionId);
+    const result = await this.getSectionById(item.sectionId);
+    this.triggerStorefrontRevalidation().catch(() => {});
+    return result;
   }
 
   async removeItem(id: string) {
     const item = await this.getItemOrThrow(id);
     await this.prisma.homepageItem.delete({ where: { id } });
 
-    return this.getSectionById(item.sectionId);
+    const result = await this.getSectionById(item.sectionId);
+    this.triggerStorefrontRevalidation().catch(() => {});
+    return result;
   }
 
   private buildSectionUpdateData(updateDto: UpdateHomepageSectionDto) {
@@ -336,5 +351,33 @@ export class HomepageService {
 
   private nullableTrim(value?: string | null) {
     return value?.trim() || null;
+  }
+
+  private async triggerStorefrontRevalidation() {
+    const revalidateUrl = this.configService.get<string>('STOREFRONT_REVALIDATE_URL');
+    const secret = this.configService.get<string>('REVALIDATION_SECRET');
+
+    if (!revalidateUrl || !secret) {
+      return;
+    }
+
+    try {
+      const res = await fetch(revalidateUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${secret}`,
+        },
+        body: JSON.stringify({ path: '/' }),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        console.error(`Storefront revalidation failed: ${res.status} ${text}`);
+      } else {
+        console.log('Storefront revalidation triggered successfully');
+      }
+    } catch (err: any) {
+      console.error('Failed to trigger storefront revalidation:', err.message);
+    }
   }
 }
