@@ -13,3 +13,4 @@ export class HomepageController {
     return this.homepageService.listPublic();
   }
 }
+
