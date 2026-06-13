@@ -1524,7 +1524,7 @@ export class ProductsService {
             and pv."deletedAt" is null
         ) vs on true
         where ${whereSql}
-        order by p."createdAt" desc
+        order by p."updatedAt" desc
         offset ${offset}
         limit ${limit}
       `,

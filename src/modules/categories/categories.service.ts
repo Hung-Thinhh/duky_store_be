@@ -46,7 +46,7 @@ export class CategoriesService {
       this.prisma.category.findMany({
         where,
         include: this.categoryInclude(),
-        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
+        orderBy: [{ sortOrder: 'asc' }, { updatedAt: 'desc' }],
         ...(skip !== undefined ? { skip } : {}),
         ...(take !== undefined ? { take } : {}),
       }),

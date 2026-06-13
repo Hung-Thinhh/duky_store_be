@@ -148,7 +148,7 @@ export class SeoService {
       this.prisma.redirect.count({ where }),
       this.prisma.redirect.findMany({
         where,
-        orderBy: { createdAt: 'desc' },
+        orderBy: { updatedAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
       }),

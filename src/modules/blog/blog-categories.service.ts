@@ -34,7 +34,7 @@ export class BlogCategoriesService {
       this.prisma.blogCategory.findMany({
         where,
         include: this.categoryInclude(),
-        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
+        orderBy: [{ sortOrder: 'asc' }, { updatedAt: 'desc' }],
         skip: (page - 1) * limit,
         take: limit,
       }),

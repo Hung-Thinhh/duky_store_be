@@ -107,7 +107,7 @@ export class BlogPostsService {
       LEFT JOIN media m ON m.id = bp."coverMediaId"
       LEFT JOIN seo_metadata sm ON sm."entityId" = bp.id AND sm."entityType" = 'BLOG_POST'
       WHERE ${whereClause}
-      ORDER BY bp."publishedAt" ${sortDir} ${sortDir === 'DESC' ? 'NULLS FIRST' : 'NULLS LAST'}, bp."createdAt" ${sortDir}
+      ORDER BY bp."publishedAt" ${sortDir} ${sortDir === 'DESC' ? 'NULLS FIRST' : 'NULLS LAST'}, bp."updatedAt" ${sortDir}
       LIMIT $${paramIdx++} OFFSET $${paramIdx++}
     `;
     params.push(limit, offset);

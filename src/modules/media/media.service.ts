@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { CopyObjectCommand, DeleteObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { randomUUID } from 'node:crypto';
 import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
@@ -85,15 +85,14 @@ export class MediaService {
       this.prisma.media.count({ where }),
       this.prisma.media.findMany({
         where,
-        include: this.mediaInclude(),
-        orderBy: { createdAt: 'desc' },
+        orderBy: { updatedAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
       }),
     ]);
 
     return {
-      data: media.map((item) => this.toMedia(item)),
+      data: media.map((item) => this.toMedia(item as any)),
       pagination: {
         page,
         limit,
@@ -217,7 +216,35 @@ export class MediaService {
   }
 
   async getById(id: string) {
-    return this.toMedia(await this.getMediaOrThrow(id));
+    const media = await this.prisma.media.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        provider: true,
+        providerKey: true,
+        url: true,
+        secureUrl: true,
+        fileName: true,
+        originalName: true,
+        mimeType: true,
+        size: true,
+        width: true,
+        height: true,
+        folder: true,
+        altText: true,
+        title: true,
+        metadata: true,
+        createdAt: true,
+        updatedAt: true,
+        deletedAt: true,
+      },
+    });
+
+    if (!media || media.deletedAt) {
+      throw new NotFoundException('Media not found');
+    }
+
+    return media;
   }
 
   async update(id: string, updateDto: UpdateMediaDto) {
@@ -262,11 +289,63 @@ export class MediaService {
       }
     }
 
+    // If fileName is being updated for an R2 media, rename (copy + delete) on Cloudflare R2
+    if (
+      data.fileName &&
+      typeof data.fileName === 'string' &&
+      existing.provider === MediaProvider.R2 &&
+      existing.providerKey
+    ) {
+      const newFileName = data.fileName as string;
+      const ext = extname(newFileName) || extname(existing.providerKey || '');
+      const nameWithoutExt = newFileName.replace(/\.[^.]+$/, '');
+      const suffix = randomUUID().substring(0, 4);
+      const finalFileName = `${nameWithoutExt}-${suffix}${ext}`;
+      const newProviderKey = this.buildR2ObjectKey(finalFileName);
+      const bucket = this.getRequiredConfig('R2_BUCKET');
+
+      try {
+        const client = this.getR2Client();
+
+        // Copy object (requires URL encoding of the copy source)
+        await client.send(
+          new CopyObjectCommand({
+            Bucket: bucket,
+            CopySource: `${bucket}/${encodeURIComponent(existing.providerKey)}`,
+            Key: newProviderKey,
+          }),
+        );
+
+        // Delete old object
+        await client.send(
+          new DeleteObjectCommand({
+            Bucket: bucket,
+            Key: existing.providerKey,
+          }),
+        );
+
+        // Update URL, providerKey, and fileName to reflect the new file name
+        const newUrl = this.buildR2PublicUrl(newProviderKey);
+
+        data.providerKey = newProviderKey;
+        data.fileName = finalFileName;
+        data.url = newUrl;
+        data.secureUrl = newUrl;
+      } catch (err) {
+        this.logger.warn(`Failed to rename R2 media object: ${err instanceof Error ? err.message : 'Unknown error'}`);
+        // If R2 rename fails, keep old file path
+      }
+    }
+
     const media = await this.prisma.media.update({
       where: { id },
       data,
       include: this.mediaInclude(),
     });
+
+    if (media.url !== existing.url) {
+      await this.updateHtmlUrls(existing.url, media.url);
+    }
 
     await this.safeUpsertAiIndex(media);
 
@@ -627,13 +706,10 @@ export class MediaService {
   }
 
   private async findById(id: string) {
-    return this.prisma.media.findFirst({
-      where: {
-        id,
-        deletedAt: null,
-      },
+    return this.prisma.media.findUnique({
+      where: { id },
       include: this.mediaInclude(),
-    });
+    }).then((m) => (m && !m.deletedAt ? m : null));
   }
 
   private mediaInclude() {
@@ -726,7 +802,7 @@ export class MediaService {
     }
   }
 
-  private toMedia(media: MediaWithUploader) {
+  private toMedia(media: any) {
     return {
       id: media.id,
       provider: media.provider,
@@ -743,7 +819,7 @@ export class MediaService {
       altText: media.altText,
       title: media.title,
       metadata: media.metadata,
-      uploadedBy: media.uploadedBy,
+      uploadedBy: media.uploadedBy ?? null,
       createdAt: media.createdAt,
       updatedAt: media.updatedAt,
     };
@@ -757,6 +833,42 @@ export class MediaService {
     } catch (error) {
       this.logger.warn(
         `Failed to update media AI index: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+    }
+  }
+
+  private async updateHtmlUrls(oldUrl: string, newUrl: string) {
+    try {
+      // Products description
+      await this.prisma.$executeRaw`
+        UPDATE "products" 
+        SET "description" = REPLACE("description", ${oldUrl}, ${newUrl}) 
+        WHERE "description" LIKE ${`%${oldUrl}%`}
+      `;
+      
+      // Products shortDescription
+      await this.prisma.$executeRaw`
+        UPDATE "products" 
+        SET "shortDescription" = REPLACE("shortDescription", ${oldUrl}, ${newUrl}) 
+        WHERE "shortDescription" LIKE ${`%${oldUrl}%`}
+      `;
+
+      // BlogPost content
+      await this.prisma.$executeRaw`
+        UPDATE "blog_posts" 
+        SET "content" = REPLACE("content", ${oldUrl}, ${newUrl}) 
+        WHERE "content" LIKE ${`%${oldUrl}%`}
+      `;
+
+      // Page content
+      await this.prisma.$executeRaw`
+        UPDATE "pages" 
+        SET "content" = REPLACE("content", ${oldUrl}, ${newUrl}) 
+        WHERE "content" LIKE ${`%${oldUrl}%`}
+      `;
+    } catch (error) {
+      this.logger.error(
+        `Failed to update HTML URLs: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
     }
   }

@@ -34,7 +34,7 @@ export class UsersService {
       this.prisma.user.findMany({
         where,
         include: this.userInclude(),
-        orderBy: { createdAt: 'desc' },
+        orderBy: { updatedAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
       }),
