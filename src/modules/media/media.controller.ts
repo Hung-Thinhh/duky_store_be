@@ -38,7 +38,8 @@ import { UploadMediaMetadataDto } from './dto/upload-media-metadata.dto';
 import { MediaAiIndexService } from './media-ai-index.service';
 import { MediaService } from './media.service';
 
-const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024;
+const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
+const MULTER_OPTIONS = { limits: { fileSize: MAX_IMAGE_SIZE_BYTES } };
 const imageUploadPipe = new ParseFilePipe({
   validators: [
     new MaxFileSizeValidator({ maxSize: MAX_IMAGE_SIZE_BYTES }),
@@ -85,7 +86,7 @@ export class MediaController {
   }
 
   @Post('upload')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', MULTER_OPTIONS))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Upload one local image file' })
   upload(
@@ -98,7 +99,7 @@ export class MediaController {
   }
 
   @Post('upload-multiple')
-  @UseInterceptors(FilesInterceptor('files', 20))
+  @UseInterceptors(FilesInterceptor('files', 20, MULTER_OPTIONS))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Upload multiple local image files' })
   uploadMultiple(

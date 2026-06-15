@@ -75,6 +75,14 @@ export class ProductVariantsService {
         salePrice: createDto.salePrice ?? null,
         isActive: createDto.isActive ?? true,
         sortOrder: createDto.sortOrder ?? 0,
+        inventory: {
+          create: {
+            quantity: 0,
+            reservedQuantity: 0,
+            lowStockThreshold: 3,
+            soldOut: true,
+          },
+        },
       },
       include: this.variantInclude(),
     });

@@ -787,8 +787,19 @@ export class MediaService {
       return { buffer, mimeType, extension: ext ? `.${ext}` : '' };
     }
 
+    // WebP hard limit: 16,383 × 16,383 px. Cap at 4096px (longest side) for web safety.
+    const MAX_WEBP_DIMENSION = 4096;
+
     try {
-      const webpBuffer = await sharp(buffer).webp({ quality: 85 }).toBuffer();
+      const webpBuffer = await sharp(buffer)
+        .resize({
+          width: MAX_WEBP_DIMENSION,
+          height: MAX_WEBP_DIMENSION,
+          fit: 'inside',           // keep aspect ratio, never crop
+          withoutEnlargement: true, // don't upscale smaller images
+        })
+        .webp({ quality: 85 })
+        .toBuffer();
       return { buffer: webpBuffer, mimeType: 'image/webp', extension: '.webp' };
     } catch (error) {
       // Conversion failed — fallback to original buffer
