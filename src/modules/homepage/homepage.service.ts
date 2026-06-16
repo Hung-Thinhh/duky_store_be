@@ -15,13 +15,67 @@ import { CreateHomepageSectionDto } from './dto/create-homepage-section.dto';
 import { ListHomepageSectionsQueryDto } from './dto/list-homepage-sections-query.dto';
 import { UpdateHomepageItemDto } from './dto/update-homepage-item.dto';
 import { UpdateHomepageSectionDto } from './dto/update-homepage-section.dto';
+import { AuthUser } from '../auth/types/auth-user.type';
 
 @Injectable()
 export class HomepageService {
+  // In-memory presence registry: sectionId -> Map of userId -> { fullName, email, lastHeartbeat }
+  private readonly activeEditors = new Map<
+    string,
+    Map<string, { fullName: string; email: string; lastHeartbeat: number }>
+  >();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
   ) {}
+
+  registerHeartbeat(sectionId: string, user: AuthUser) {
+    if (!this.activeEditors.has(sectionId)) {
+      this.activeEditors.set(sectionId, new Map());
+    }
+    const userMap = this.activeEditors.get(sectionId)!;
+    userMap.set(user.id, {
+      fullName: user.fullName,
+      email: user.email,
+      lastHeartbeat: Date.now(),
+    });
+
+    // Cleanup stale editors (older than 15s)
+    const staleThreshold = Date.now() - 15000;
+    for (const [secId, uMap] of this.activeEditors.entries()) {
+      for (const [uId, info] of uMap.entries()) {
+        if (info.lastHeartbeat < staleThreshold) {
+          uMap.delete(uId);
+        }
+      }
+      if (uMap.size === 0) {
+        this.activeEditors.delete(secId);
+      }
+    }
+  }
+
+  getActiveEditors() {
+    const result: Record<string, Array<{ id: string; fullName: string; email: string }>> = {};
+    const staleThreshold = Date.now() - 15000;
+
+    for (const [secId, uMap] of this.activeEditors.entries()) {
+      const activeUsers: Array<{ id: string; fullName: string; email: string }> = [];
+      for (const [uId, info] of uMap.entries()) {
+        if (info.lastHeartbeat >= staleThreshold) {
+          activeUsers.push({
+            id: uId,
+            fullName: info.fullName,
+            email: info.email,
+          });
+        }
+      }
+      if (activeUsers.length > 0) {
+        result[secId] = activeUsers;
+      }
+    }
+    return result;
+  }
 
   async listPublic() {
     const sections = await this.prisma.homepageSection.findMany({

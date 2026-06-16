@@ -24,6 +24,8 @@ import { ListHomepageSectionsQueryDto } from './dto/list-homepage-sections-query
 import { UpdateHomepageItemDto } from './dto/update-homepage-item.dto';
 import { UpdateHomepageSectionDto } from './dto/update-homepage-section.dto';
 import { HomepageService } from './homepage.service';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { AuthUser } from '../auth/types/auth-user.type';
 
 @ApiTags('Admin Homepage')
 @ApiBearerAuth()
@@ -94,5 +96,22 @@ export class AdminHomepageController {
   @ApiParam({ name: 'id' })
   removeItem(@Param('id') id: string) {
     return this.homepageService.removeItem(id);
+  }
+
+  @Post('sections/:id/heartbeat')
+  @ApiOperation({ summary: 'Register heartbeat for editing a section' })
+  @ApiParam({ name: 'id' })
+  registerHeartbeat(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    this.homepageService.registerHeartbeat(id, user);
+    return { success: true };
+  }
+
+  @Get('active-editors')
+  @ApiOperation({ summary: 'Get all active editors' })
+  getActiveEditors() {
+    return this.homepageService.getActiveEditors();
   }
 }

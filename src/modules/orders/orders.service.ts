@@ -261,6 +261,16 @@ export class OrdersService {
             soldOut: quantityAfter <= 0,
           },
         });
+        if (item.product.id) {
+          await tx.product.update({
+            where: { id: item.product.id },
+            data: {
+              soldCount: {
+                increment: item.quantity,
+              },
+            },
+          });
+        }
         await tx.inventoryLog.create({
           data: {
             inventoryId: item.inventory.id,
@@ -401,6 +411,16 @@ export class OrdersService {
             soldOut: false,
           },
         });
+        if (item.productId) {
+          await tx.product.update({
+            where: { id: item.productId },
+            data: {
+              soldCount: {
+                decrement: item.quantity,
+              },
+            },
+          });
+        }
         await tx.inventoryLog.create({
           data: {
             inventoryId: inventory.id,
