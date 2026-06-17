@@ -219,6 +219,16 @@ export class CheckoutService {
             soldOut: quantityAfter <= 0,
           },
         });
+        if (item.cartItem.productId) {
+          await tx.product.update({
+            where: { id: item.cartItem.productId },
+            data: {
+              soldCount: {
+                increment: item.cartItem.quantity,
+              },
+            },
+          });
+        }
         await tx.inventoryLog.create({
           data: {
             inventoryId: item.inventory.id,

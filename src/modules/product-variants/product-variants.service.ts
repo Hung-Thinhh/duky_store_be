@@ -4,15 +4,20 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '../../../generated/prisma/client';
+import { InventoryChangeType, Prisma } from '../../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { InventoryService } from '../inventory/inventory.service';
 import { CreateProductVariantDto } from './dto/create-product-variant.dto';
 import { ListProductVariantsQueryDto } from './dto/list-product-variants-query.dto';
+import { QuickUpdateVariantDto } from './dto/quick-update-variant.dto';
 import { UpdateProductVariantDto } from './dto/update-product-variant.dto';
 
 @Injectable()
 export class ProductVariantsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly inventoryService: InventoryService,
+  ) {}
 
   async list(query: ListProductVariantsQueryDto) {
     const page = query.page ?? 1;
@@ -116,6 +121,100 @@ export class ProductVariantsService {
       where: { id },
       data,
       include: this.variantInclude(),
+    });
+
+    return this.toVariant(variant);
+  }
+
+  async quickUpdate(id: string, dto: QuickUpdateVariantDto, actorId: string) {
+    const existing = await this.getVariantOrThrow(id);
+
+    if (dto.price !== undefined || dto.salePrice !== undefined) {
+      this.assertValidPrice(
+        dto.price ?? existing.price ?? undefined,
+        dto.salePrice === undefined
+          ? existing.salePrice
+          : dto.salePrice,
+      );
+    }
+
+    const variant = await this.prisma.$transaction(async (tx) => {
+      const updateData: Prisma.ProductVariantUncheckedUpdateInput = {};
+      if (dto.price !== undefined) {
+        updateData.price = dto.price;
+      }
+      if (dto.salePrice !== undefined) {
+        updateData.salePrice = dto.salePrice;
+      }
+
+      let updatedVariant = existing;
+      if (Object.keys(updateData).length > 0) {
+        updatedVariant = await tx.productVariant.update({
+          where: { id },
+          data: updateData,
+          include: this.variantInclude(),
+        });
+      }
+
+      if (dto.quantity !== undefined) {
+        const existingInventory = await tx.inventory.findFirst({
+          where: { variantId: id },
+        });
+
+        const nextQuantity = dto.quantity;
+        if (nextQuantity < 0) {
+          throw new BadRequestException('Inventory quantity cannot be negative');
+        }
+
+        const savedInventory = existingInventory
+          ? await tx.inventory.update({
+              where: { id: existingInventory.id },
+              data: {
+                quantity: nextQuantity,
+                soldOut: nextQuantity <= 0,
+              },
+            })
+          : await tx.inventory.create({
+              data: {
+                productId: existing.productId,
+                variantId: id,
+                quantity: nextQuantity,
+                reservedQuantity: 0,
+                lowStockThreshold: 3,
+                soldOut: nextQuantity <= 0,
+              },
+            });
+
+        const previousQuantity = existingInventory?.quantity ?? 0;
+        const quantityChange = nextQuantity - previousQuantity;
+
+        await tx.inventoryLog.create({
+          data: {
+            inventoryId: savedInventory.id,
+            productId: existing.productId,
+            variantId: id,
+            actorId,
+            changeType: existingInventory
+              ? InventoryChangeType.ADJUST
+              : InventoryChangeType.IMPORT,
+            quantityBefore: previousQuantity,
+            quantityChange,
+            quantityAfter: nextQuantity,
+            note: dto.note?.trim() || 'Cập nhật nhanh từ trang Chi tiết tồn kho',
+          },
+        });
+
+        const result = await tx.productVariant.findFirst({
+          where: { id },
+          include: this.variantInclude(),
+        });
+        if (!result) {
+          throw new NotFoundException('Variant not found');
+        }
+        updatedVariant = result;
+      }
+
+      return updatedVariant;
     });
 
     return this.toVariant(variant);

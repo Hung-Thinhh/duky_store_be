@@ -1390,7 +1390,7 @@ export class ProductsService {
         Prisma.sql`(
           p."name" ilike ${pattern}
           or p."slug" ilike ${pattern}
-          or p."sku" ilike ${pattern}
+          or p."sku" ilike ${pattern} or exists (select 1 from "product_variants" pv where pv."productId" = p."id" and pv."sku" ilike ${pattern} and pv."deletedAt" is null)
         )`,
       );
     }
@@ -1423,6 +1423,47 @@ export class ProductsService {
             and pt."tagId" = ${query.tagId}
         )`,
       );
+    }
+
+    if (query.inventoryStatus) {
+      if (query.inventoryStatus === 'instock') {
+        filters.push(
+          Prisma.sql`(case when p."type" = 'VARIABLE'::"ProductType" then coalesce(vs."quantity", 0) > coalesce(vs."lowStockThreshold", 0) and coalesce(vs."soldOut", false) = false else coalesce(inv."quantity", 0) > coalesce(inv."lowStockThreshold", 0) and coalesce(inv."soldOut", false) = false end)`,
+        );
+      } else if (query.inventoryStatus === 'lowstock') {
+        filters.push(
+          Prisma.sql`(case when p."type" = 'VARIABLE'::"ProductType" then (coalesce(vs."quantity", 0) <= coalesce(vs."lowStockThreshold", 0) or coalesce(vs."isLowStock", false) = true) and coalesce(vs."quantity", 0) > 0 else (coalesce(inv."quantity", 0) <= coalesce(inv."lowStockThreshold", 0) or coalesce(inv."soldOut", false) = true) and coalesce(inv."quantity", 0) > 0 end)`,
+        );
+      } else if (query.inventoryStatus === 'outofstock') {
+        filters.push(
+          Prisma.sql`(case when p."type" = 'VARIABLE'::"ProductType" then coalesce(vs."quantity", 0) = 0 or coalesce(vs."soldOut", false) = true else coalesce(inv."quantity", 0) = 0 or coalesce(inv."soldOut", false) = true end)`,
+        );
+      }
+    }
+
+    let orderBySql = Prisma.sql`p."updatedAt" desc`;
+    if (query.sortBy) {
+      switch (query.sortBy) {
+        case 'price_asc':
+          orderBySql = Prisma.sql`p."salePrice" asc, p."originalPrice" asc`;
+          break;
+        case 'price_desc':
+          orderBySql = Prisma.sql`p."salePrice" desc, p."originalPrice" desc`;
+          break;
+        case 'stock_asc':
+          orderBySql = Prisma.sql`case when p."type" = 'VARIABLE'::"ProductType" then coalesce(vs."quantity", 0) else coalesce(inv."quantity", 0) end asc`;
+          break;
+        case 'stock_desc':
+          orderBySql = Prisma.sql`case when p."type" = 'VARIABLE'::"ProductType" then coalesce(vs."quantity", 0) else coalesce(inv."quantity", 0) end desc`;
+          break;
+        case 'createdAt_desc':
+          orderBySql = Prisma.sql`p."createdAt" desc`;
+          break;
+        case 'updatedAt_desc':
+        default:
+          orderBySql = Prisma.sql`p."updatedAt" desc`;
+          break;
+      }
     }
 
     const offset = (page - 1) * limit;
@@ -1524,7 +1565,7 @@ export class ProductsService {
             and pv."deletedAt" is null
         ) vs on true
         where ${whereSql}
-        order by p."updatedAt" desc
+        order by ${orderBySql}
         offset ${offset}
         limit ${limit}
       `,

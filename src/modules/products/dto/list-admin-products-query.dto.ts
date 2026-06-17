@@ -46,4 +46,14 @@ export class ListAdminProductsQueryDto {
   @IsOptional()
   @IsString()
   tagId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  inventoryStatus?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  sortBy?: string;
 }
