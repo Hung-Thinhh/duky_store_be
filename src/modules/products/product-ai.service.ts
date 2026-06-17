@@ -50,7 +50,7 @@ export class ProductAiService {
 
     const model = this.configService.get<string>('PRODUCT_AI_MODEL')?.trim()
       || this.configService.get<string>('BLOG_AI_MODEL')?.trim()
-      || 'gx/gpt-5.5';
+      || 'alic/qwen3.7-max';
 
     const endpoint = `${baseUrl.replace(/\/+$/g, '')}/chat/completions`;
 

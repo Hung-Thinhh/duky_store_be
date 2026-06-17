@@ -68,7 +68,7 @@ export class BlogAiService {
     const baseUrl = this.configService.get<string>('BLOG_AI_BASE_URL')?.trim()
       || 'https://llm.chiasegpu.vn/v1';
     const model = this.configService.get<string>('BLOG_AI_MODEL')?.trim()
-      || 'gx/gpt-5.5';
+      || 'ts/gemini-3.5-flash';
     const endpoint = `${baseUrl.replace(/\/+$/g, '')}/chat/completions`;
 
     // 1. Timeout 300s (5 phút)
