@@ -7,6 +7,7 @@ import {
   CartStatus,
   Prisma,
   ProductStatus,
+  ProductType,
 } from '../../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { AddCartItemDto } from './dto/add-cart-item.dto';
@@ -49,6 +50,7 @@ type ProductForCart = {
   id: string;
   name: string;
   sku: string | null;
+  type: ProductType;
   status: ProductStatus;
   originalPrice: number;
   salePrice: number | null;
@@ -83,6 +85,11 @@ export class CartService {
   async addItem(addDto: AddCartItemDto) {
     const cart = await this.findOrCreateActiveCart(addDto.sessionId);
     const product = await this.getProductForCart(addDto.productId);
+
+    if (product.type === ProductType.VARIABLE && !addDto.variantId) {
+      throw new BadRequestException('Product variant is required');
+    }
+
     const variant = this.resolveVariant(product, addDto.variantId);
     const existingItem = cart.items.find(
       (item) =>
@@ -239,6 +246,7 @@ export class CartService {
         id: true,
         name: true,
         sku: true,
+        type: true,
         status: true,
         originalPrice: true,
         salePrice: true,
@@ -323,9 +331,9 @@ export class CartService {
     }
 
     const unitPrice =
-      variant?.salePrice ??
+      (variant?.salePrice && variant.salePrice > 0 ? variant.salePrice : null) ??
       variant?.price ??
-      product.salePrice ??
+      (product.salePrice && product.salePrice > 0 ? product.salePrice : null) ??
       product.originalPrice;
 
     return {

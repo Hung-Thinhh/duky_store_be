@@ -65,7 +65,8 @@ export class OrdersService {
 
   async createAdmin(createDto: CreateAdminOrderDto, actorId: string) {
     const order = await this.prisma.$transaction(async (tx) => {
-      const normalizedItems = await Promise.all(
+      // 1. Fetch products and variants first (no locks yet)
+      const itemsWithProduct = await Promise.all(
         createDto.items.map(async (item) => {
           const product = await tx.product.findFirst({
             where: {
@@ -98,57 +99,80 @@ export class OrdersService {
           }
 
           const rawInventory = variant?.inventory ?? product.inventory;
-
-          if (!rawInventory || rawInventory.soldOut) {
+          if (!rawInventory) {
             throw new BadRequestException(`Product ${product.name} is out of stock`);
           }
-
-          // Re-fetch inventory with pessimistic lock
-          const [lockedInventory] = await tx.$queryRaw<
-            { id: string; quantity: number; reservedQuantity: number; soldOut: boolean }[]
-          >`
-            SELECT id, quantity, "reservedQuantity", "soldOut"
-            FROM inventories
-            WHERE id = ${rawInventory.id}
-            FOR UPDATE
-          `;
-
-          if (!lockedInventory || lockedInventory.soldOut) {
-            throw new BadRequestException(`Product ${product.name} is out of stock`);
-          }
-
-          const availableQuantity = lockedInventory.quantity - lockedInventory.reservedQuantity;
-
-          if (item.quantity > availableQuantity) {
-            throw new BadRequestException(
-              `Requested quantity exceeds stock for ${product.name}`,
-            );
-          }
-
-          const unitPrice =
-            variant?.salePrice ??
-            variant?.price ??
-            product.salePrice ??
-            product.originalPrice;
-          const variantLabel = [
-            variant?.sizeLabel ? `Size: ${variant.sizeLabel}` : null,
-            variant?.colorName ? `Màu: ${variant.colorName}` : null,
-          ]
-            .filter((value): value is string => Boolean(value))
-            .join(' - ');
-          const variantName = variantLabel || variant?.name || null;
 
           return {
+            item,
             product,
             variant,
-            inventory: lockedInventory,
-            quantity: item.quantity,
-            unitPrice,
-            lineTotal: unitPrice * item.quantity,
-            variantName,
+            rawInventory,
           };
         }),
       );
+
+      // 2. Sort unique inventory IDs to prevent deadlocks
+      const uniqueInventoryIds = [...new Set(itemsWithProduct.map((x) => x.rawInventory.id))].sort();
+
+      // 3. Acquire locks in sorted order
+      const lockedInventoryMap = new Map<
+        string,
+        { id: string; quantity: number; reservedQuantity: number; soldOut: boolean }
+      >();
+      for (const invId of uniqueInventoryIds) {
+        const [lockedInventory] = await tx.$queryRaw<
+          { id: string; quantity: number; reservedQuantity: number; soldOut: boolean }[]
+        >`
+          SELECT id, quantity, "reservedQuantity", "soldOut"
+          FROM inventories
+          WHERE id = ${invId}
+          FOR UPDATE
+        `;
+
+        if (!lockedInventory || lockedInventory.soldOut) {
+          throw new BadRequestException('Product is out of stock');
+        }
+        lockedInventoryMap.set(invId, lockedInventory);
+      }
+
+      // 4. Build normalized items with validations
+      const normalizedItems = itemsWithProduct.map(({ item, product, variant, rawInventory }) => {
+        const lockedInventory = lockedInventoryMap.get(rawInventory.id);
+        if (!lockedInventory) {
+          throw new BadRequestException(`Product ${product.name} is out of stock`);
+        }
+
+        const availableQuantity = lockedInventory.quantity - lockedInventory.reservedQuantity;
+        if (item.quantity > availableQuantity) {
+          throw new BadRequestException(
+            `Requested quantity exceeds stock for ${product.name}`,
+          );
+        }
+
+        const unitPrice =
+          (variant?.salePrice && variant.salePrice > 0 ? variant.salePrice : null) ??
+          variant?.price ??
+          (product.salePrice && product.salePrice > 0 ? product.salePrice : null) ??
+          product.originalPrice;
+        const variantLabel = [
+          variant?.sizeLabel ? `Size: ${variant.sizeLabel}` : null,
+          variant?.colorName ? `Màu: ${variant.colorName}` : null,
+        ]
+          .filter((value): value is string => Boolean(value))
+          .join(' - ');
+        const variantName = variantLabel || variant?.name || null;
+
+        return {
+          product,
+          variant,
+          inventory: lockedInventory,
+          quantity: item.quantity,
+          unitPrice,
+          lineTotal: unitPrice * item.quantity,
+          variantName,
+        };
+      });
 
       const subtotal = normalizedItems.reduce(
         (sum, item) => sum + item.lineTotal,
@@ -652,21 +676,19 @@ export class OrdersService {
   ) {
     const phone = createDto.customerPhone.trim();
     const email = this.nullableTrim(createDto.customerEmail);
-    const existing = await tx.customer.findFirst({
-      where: {
-        OR: [{ phone }, ...(email ? [{ email }] : [])],
-      },
+
+    let customer = await tx.customer.findUnique({
+      where: { phone },
     });
 
-    if (existing) {
-      return tx.customer.update({
-        where: { id: existing.id },
-        data: {
-          fullName: createDto.customerName.trim(),
-          phone,
-          email,
-        },
+    if (!customer && email) {
+      customer = await tx.customer.findUnique({
+        where: { email },
       });
+    }
+
+    if (customer) {
+      return customer;
     }
 
     return tx.customer.create({

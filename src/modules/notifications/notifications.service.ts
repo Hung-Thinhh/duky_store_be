@@ -1,5 +1,6 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Queue } from 'bullmq';
 import {
   JobStatus,
@@ -23,6 +24,7 @@ type EmailPayload = {
 export class NotificationsService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly configService: ConfigService,
     @InjectQueue(MAIL_QUEUE) private readonly mailQueue: Queue,
   ) {}
 
@@ -34,7 +36,38 @@ export class NotificationsService {
         code: true,
         customerName: true,
         customerEmail: true,
+        customerPhone: true,
         grandTotal: true,
+        subtotal: true,
+        discountTotal: true,
+        shippingFee: true,
+        customerNote: true,
+        createdAt: true,
+        items: {
+          select: {
+            productName: true,
+            variantName: true,
+            quantity: true,
+            unitPrice: true,
+            lineTotal: true,
+          },
+          orderBy: { createdAt: 'asc' },
+        },
+        shippingAddress: {
+          select: {
+            fullName: true,
+            phone: true,
+            addressLine: true,
+            ward: true,
+            district: true,
+            province: true,
+          },
+        },
+        payments: {
+          select: { method: true },
+          take: 1,
+          orderBy: { createdAt: 'asc' },
+        },
       },
     });
 
@@ -42,6 +75,7 @@ export class NotificationsService {
       return [];
     }
 
+    const orderVariables = this.buildOrderEmailVariables(order);
     const queued: Array<{ notificationLogId: string; jobId: string }> = [];
 
     if (order.customerEmail) {
@@ -49,11 +83,7 @@ export class NotificationsService {
         await this.enqueueTemplateEmail({
           templateKey: 'order.confirmation',
           recipient: order.customerEmail,
-          variables: {
-            customerName: order.customerName,
-            orderCode: order.code,
-            grandTotal: order.grandTotal,
-          },
+          variables: orderVariables,
           entityType: 'order',
           entityId: order.id,
         }),
@@ -64,10 +94,30 @@ export class NotificationsService {
 
     if (adminEmail) {
       queued.push(
-        await this.enqueueRawEmail({
+        await this.enqueueTemplateEmail({
+          templateKey: 'order.admin_notification',
           recipient: adminEmail,
-          subject: `Duky Store có đơn hàng mới ${order.code}`,
-          body: `Đơn hàng ${order.code} vừa được tạo. Tổng tiền: ${order.grandTotal} VND.`,
+          variables: orderVariables,
+          entityType: 'order',
+          entityId: order.id,
+        }),
+      );
+    }
+
+    const shopEmails: string[] = [];
+    for (let i = 0; i < 20; i++) {
+      const email = this.configService.get<string>(`MAIL_SHOP_${i}`);
+      if (email && email.trim()) {
+        shopEmails.push(email.trim());
+      }
+    }
+
+    for (const shopEmail of shopEmails) {
+      queued.push(
+        await this.enqueueTemplateEmail({
+          templateKey: 'order.admin_notification',
+          recipient: shopEmail,
+          variables: orderVariables,
           entityType: 'order',
           entityId: order.id,
         }),
@@ -213,10 +263,135 @@ export class NotificationsService {
     return typeof value === 'string' && value.trim() ? value.trim() : null;
   }
 
+  // ─── Order email variable builder ────────────────────────────────────────────
+
+  private buildOrderEmailVariables(order: {
+    code: string;
+    customerName: string;
+    customerPhone: string;
+    customerEmail?: string | null;
+    grandTotal: number;
+    subtotal: number;
+    discountTotal: number;
+    shippingFee: number;
+    customerNote?: string | null;
+    createdAt: Date;
+    items: Array<{
+      productName: string;
+      variantName?: string | null;
+      quantity: number;
+      unitPrice: number;
+      lineTotal: number;
+    }>;
+    shippingAddress?: {
+      fullName: string;
+      phone: string;
+      addressLine: string;
+      ward?: string | null;
+      district?: string | null;
+      province?: string | null;
+    } | null;
+    payments: Array<{ method: string }>;
+  }): Record<string, string> {
+    // --- Items HTML rows ---
+    const itemsHtml = order.items
+      .map(
+        (item, idx) =>
+          `<tr style="background:${idx % 2 === 0 ? '#ffffff' : '#faf8f5'};">` +
+          `<td style="padding:14px 16px;font-size:14px;color:#1a1a2e;border-bottom:1px solid #ede8e3;">` +
+          `${this.escapeHtml(item.productName)}` +
+          (item.variantName
+            ? `<br><span style="color:#888;font-size:12px;">${this.escapeHtml(item.variantName)}</span>`
+            : '') +
+          `</td>` +
+          `<td style="padding:14px 8px;font-size:14px;color:#555;text-align:center;border-bottom:1px solid #ede8e3;">${item.quantity}</td>` +
+          `<td style="padding:14px 16px;font-size:14px;color:#1a1a2e;font-weight:600;text-align:right;border-bottom:1px solid #ede8e3;">${this.formatCurrency(item.lineTotal)}&nbsp;₫</td>` +
+          `</tr>`,
+      )
+      .join('');
+
+    // --- Shipping address ---
+    const addr = order.shippingAddress;
+    const shippingAddress = addr
+      ? [addr.fullName, addr.phone, addr.addressLine, addr.ward, addr.district, addr.province]
+          .filter(Boolean)
+          .join(', ')
+      : 'Chưa cập nhật';
+
+    // --- Payment method ---
+    const paymentMethod = this.getPaymentMethodLabel(order.payments[0]?.method ?? '');
+
+    // --- Order date ---
+    const orderDate = order.createdAt.toLocaleString('vi-VN', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+    // --- Shipping fee display ---
+    const shippingFee =
+      order.shippingFee === 0
+        ? 'Khách hàng tự thanh toán'
+        : `${this.formatCurrency(order.shippingFee)}&nbsp;₫`;
+
+    // --- Customer note block (pre-rendered HTML) ---
+    const customerNoteHtml = order.customerNote
+      ? `<tr><td style="padding:0 48px 28px;">` +
+        `<div style="background:#fffbf0;border-left:4px solid #c9a96e;border-radius:4px;padding:16px 20px;">` +
+        `<p style="color:#888;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px;font-weight:600;">Ghi chú của khách</p>` +
+        `<p style="color:#444;font-size:14px;line-height:1.6;margin:0;">${this.escapeHtml(order.customerNote)}</p>` +
+        `</div></td></tr>`
+      : '';
+
+    return {
+      customerName: this.escapeHtml(order.customerName),
+      orderCode: this.escapeHtml(order.code),
+      orderDate,
+      customerPhone: this.escapeHtml(order.customerPhone),
+      customerEmail: this.escapeHtml(order.customerEmail ?? ''),
+      itemsHtml,
+      subtotal: this.formatCurrency(order.subtotal),
+      shippingFee,
+      discountTotal: this.formatCurrency(order.discountTotal),
+      grandTotal: this.formatCurrency(order.grandTotal),
+      shippingAddress: this.escapeHtml(shippingAddress),
+      paymentMethod: this.escapeHtml(paymentMethod),
+      customerNoteHtml,
+    };
+  }
+
+  // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+  private formatCurrency(amount: number): string {
+    return new Intl.NumberFormat('vi-VN').format(amount);
+  }
+
+  private escapeHtml(text: string): string {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  private getPaymentMethodLabel(method: string): string {
+    const labels: Record<string, string> = {
+      COD: 'Thanh toán khi nhận hàng (COD)',
+      BANK_TRANSFER: 'Chuyển khoản ngân hàng',
+      MOMO: 'Ví MoMo',
+      VNPAY: 'VNPay',
+      ZALOPAY: 'ZaloPay',
+      CREDIT_CARD: 'Thẻ tín dụng / Ghi nợ',
+    };
+    return labels[method] ?? (method || 'Chưa xác định');
+  }
+
   private renderTemplate(template: string, variables: Record<string, unknown>) {
     return template.replace(/\{\{(\w+)\}\}/g, (_match, key: string) => {
       const value = variables[key];
-
       return value === undefined || value === null ? '' : String(value);
     });
   }
