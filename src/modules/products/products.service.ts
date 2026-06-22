@@ -611,6 +611,28 @@ export class ProductsService {
 
     const total = rows[0]?.totalCount ?? 0;
 
+    const productIds = rows.map((row) => row.id);
+    const productVariants = productIds.length
+      ? await this.prisma.productVariant.findMany({
+          where: {
+            productId: { in: productIds },
+            isActive: true,
+            deletedAt: null,
+          },
+          include: {
+            inventory: true,
+          },
+        })
+      : [];
+
+    const variantsByProductId: Record<string, typeof productVariants> = {};
+    for (const variant of productVariants) {
+      if (!variantsByProductId[variant.productId]) {
+        variantsByProductId[variant.productId] = [];
+      }
+      variantsByProductId[variant.productId].push(variant);
+    }
+
     return {
       data: rows.map((row) => {
         const searchRow = row as AdminProductListRow & {
@@ -638,6 +660,7 @@ export class ProductsService {
           updatedAt: row.updatedAt,
           images: row.image ? [row.image] : [],
           inventory: row.inventory,
+          variants: variantsByProductId[row.id] || [],
         };
         return {
           ...this.toProductListItem(item),
@@ -1049,6 +1072,28 @@ export class ProductsService {
       rows.push(...fallback);
     }
 
+    const productIds = rows.map((row) => row.id);
+    const productVariants = productIds.length
+      ? await this.prisma.productVariant.findMany({
+          where: {
+            productId: { in: productIds },
+            isActive: true,
+            deletedAt: null,
+          },
+          include: {
+            inventory: true,
+          },
+        })
+      : [];
+
+    const variantsByProductId: Record<string, typeof productVariants> = {};
+    for (const variant of productVariants) {
+      if (!variantsByProductId[variant.productId]) {
+        variantsByProductId[variant.productId] = [];
+      }
+      variantsByProductId[variant.productId].push(variant);
+    }
+
     return {
       data: rows.map((row) => {
         const recommendationRow = row as AdminProductListRow & {
@@ -1075,6 +1120,7 @@ export class ProductsService {
           updatedAt: row.updatedAt,
           images: row.image ? [row.image] : [],
           inventory: row.inventory,
+          variants: variantsByProductId[row.id] || [],
         };
         return {
           ...this.toProductListItem(item),
@@ -2445,11 +2491,9 @@ export class ProductsService {
       },
     };
 
-    if (options?.includeAdminMeta) {
-      select.inventory = {
-        select: this.inventoryListSelect(),
-      };
-    }
+    select.inventory = {
+      select: this.inventoryListSelect(),
+    };
 
     return select;
   }

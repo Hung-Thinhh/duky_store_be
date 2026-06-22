@@ -16,6 +16,10 @@ import { Prisma } from '../../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { VerifyOtpDto } from './dto/verify-otp.dto';
+import { ResetPasswordWithOtpDto } from './dto/reset-password-with-otp.dto';
+import { NotificationsService } from '../notifications/notifications.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { CreateAddressDto } from './dto/create-address.dto';
@@ -50,6 +54,7 @@ export class CustomerAuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async loginWithGoogle(
@@ -668,5 +673,103 @@ export class CustomerAuthService {
       throw new NotFoundException('Order not found');
     }
     return order;
+  }
+
+  async forgotPassword(dto: ForgotPasswordDto) {
+    const email = dto.email.toLowerCase();
+
+    const customer = await this.prisma.customer.findUnique({
+      where: { email },
+    });
+
+    if (!customer) {
+      throw new NotFoundException('tài khoản gmail này chưa được đăng ký');
+    }
+
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
+    await this.prisma.customerPasswordReset.deleteMany({
+      where: { email },
+    });
+
+    await this.prisma.customerPasswordReset.create({
+      data: {
+        email,
+        otpCode,
+        expiresAt,
+      },
+    });
+
+    await this.notificationsService.enqueueRawEmail({
+      recipient: email,
+      subject: 'Đặt lại mật khẩu - DUKY Store',
+      body: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
+          <h2 style="color: #c9a96e; text-align: center;">Yêu Cầu Đặt Lại Mật Khẩu</h2>
+          <p>Chào bạn,</p>
+          <p>Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản của bạn tại DUKY Store. Dưới đây là mã xác thực (OTP) của bạn:</p>
+          <div style="background-color: #faf8f5; border: 1px dashed #c9a96e; border-radius: 4px; padding: 15px; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 5px; color: #1a1a2e; margin: 20px 0;">
+            ${otpCode}
+          </div>
+          <p style="color: #666; font-size: 14px;">Mã xác thực này chỉ tồn tại trong vòng <strong>5 phút</strong>. Quá 5 phút mã xác thực sẽ không còn hiệu lực.</p>
+          <p>Nếu bạn không thực hiện yêu cầu này, vui lòng bỏ qua email này.</p>
+          <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
+          <p style="font-size: 12px; color: #999; text-align: center;">DUKY Store - Luxury Minimalist Fashion</p>
+        </div>
+      `,
+    });
+
+    return { success: true };
+  }
+
+  async verifyOtp(dto: VerifyOtpDto) {
+    const email = dto.email.toLowerCase();
+
+    const resetRecord = await this.prisma.customerPasswordReset.findFirst({
+      where: { email, otpCode: dto.otpCode },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!resetRecord || resetRecord.expiresAt < new Date()) {
+      throw new BadRequestException('mã xác thực không hợp lệ vui lòng nhập lại mã mới');
+    }
+
+    await this.prisma.customerPasswordReset.update({
+      where: { id: resetRecord.id },
+      data: { verified: true },
+    });
+
+    return { success: true };
+  }
+
+  async resetPasswordWithOtp(dto: ResetPasswordWithOtpDto) {
+    if (dto.newPassword !== dto.confirmPassword) {
+      throw new BadRequestException('Mật khẩu xác nhận không khớp');
+    }
+
+    const email = dto.email.toLowerCase();
+
+    const resetRecord = await this.prisma.customerPasswordReset.findFirst({
+      where: { email, otpCode: dto.otpCode, verified: true },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!resetRecord || resetRecord.expiresAt < new Date()) {
+      throw new BadRequestException('mã xác thực không hợp lệ vui lòng nhập lại mã mới');
+    }
+
+    const passwordHash = await bcrypt.hash(dto.newPassword, 10);
+
+    await this.prisma.customer.update({
+      where: { email },
+      data: { passwordHash },
+    });
+
+    await this.prisma.customerPasswordReset.delete({
+      where: { id: resetRecord.id },
+    });
+
+    return { success: true };
   }
 }

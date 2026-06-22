@@ -23,6 +23,7 @@ import { SeoModule } from './modules/seo/seo.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { TagsModule } from './modules/tags/tags.module';
 import { UsersModule } from './modules/users/users.module';
+import { ChatbotModule } from './modules/chatbot/chatbot.module';
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { UsersModule } from './modules/users/users.module';
     ProductAttributesModule,
     ProductVariantsModule,
     InventoryModule,
+    ChatbotModule,
   ],
   controllers: [AppController],
   providers: [AppService],

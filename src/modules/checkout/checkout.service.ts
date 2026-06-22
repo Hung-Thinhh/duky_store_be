@@ -60,6 +60,46 @@ export class CheckoutService {
         throw new BadRequestException('Cart is empty');
       }
 
+      // Gather and sort unique inventory IDs to prevent deadlocks
+      const rawInventories = cart.items.map((item) => {
+        const rawInventory = item.variant?.inventory ?? item.product.inventory;
+        if (!rawInventory) {
+          throw new BadRequestException(
+            `Product ${item.productName} is out of stock`,
+          );
+        }
+        return {
+          itemId: item.id,
+          inventoryId: rawInventory.id,
+        };
+      });
+
+      const uniqueInventoryIds = [...new Set(rawInventories.map((ri) => ri.inventoryId))].sort();
+
+      // Acquire pessimistic locks in sorted order
+      const lockedInventoryMap = new Map<
+        string,
+        { id: string; quantity: number; reservedQuantity: number; soldOut: boolean }
+      >();
+      for (const invId of uniqueInventoryIds) {
+        const [lockedInventory] = await tx.$queryRaw<
+          { id: string; quantity: number; reservedQuantity: number; soldOut: boolean }[]
+        >`
+          SELECT id, quantity, "reservedQuantity", "soldOut"
+          FROM inventories
+          WHERE id = ${invId}
+          FOR UPDATE
+        `;
+
+        if (!lockedInventory || lockedInventory.soldOut) {
+          throw new BadRequestException(
+            `Product is out of stock`,
+          );
+        }
+        lockedInventoryMap.set(invId, lockedInventory);
+      }
+
+      // Process and validate cart items using locked inventory
       const normalizedItems = await Promise.all(cart.items.map(async (item) => {
         if (
           !item.product ||
@@ -78,24 +118,9 @@ export class CheckoutService {
         }
 
         const rawInventory = item.variant?.inventory ?? item.product.inventory;
+        const lockedInventory = lockedInventoryMap.get(rawInventory!.id);
 
-        if (!rawInventory || rawInventory.soldOut) {
-          throw new BadRequestException(
-            `Product ${item.productName} is out of stock`,
-          );
-        }
-
-        // Re-fetch inventory with pessimistic lock to prevent race conditions
-        const [lockedInventory] = await tx.$queryRaw<
-          { id: string; quantity: number; reservedQuantity: number; soldOut: boolean }[]
-        >`
-          SELECT id, quantity, "reservedQuantity", "soldOut"
-          FROM inventories
-          WHERE id = ${rawInventory.id}
-          FOR UPDATE
-        `;
-
-        if (!lockedInventory || lockedInventory.soldOut) {
+        if (!lockedInventory) {
           throw new BadRequestException(
             `Product ${item.productName} is out of stock`,
           );
@@ -108,9 +133,9 @@ export class CheckoutService {
         }
 
         const unitPrice =
-          item.variant?.salePrice ??
+          (item.variant?.salePrice && item.variant.salePrice > 0 ? item.variant.salePrice : null) ??
           item.variant?.price ??
-          item.product.salePrice ??
+          (item.product.salePrice && item.product.salePrice > 0 ? item.product.salePrice : null) ??
           item.product.originalPrice;
         const lineTotal = unitPrice * item.quantity;
 
@@ -249,6 +274,7 @@ export class CheckoutService {
         where: { id: cart.id },
         data: {
           status: CartStatus.CHECKED_OUT,
+          customerId: customer.id,
           subtotal,
           discountTotal,
           shippingFee,
@@ -293,37 +319,28 @@ export class CheckoutService {
     const phone = checkoutDto.customerPhone.trim();
     const email = this.nullableTrim(checkoutDto.customerEmail);
 
+    let customer: any = null;
+
     if (checkoutDto.customerId) {
-      const existing = await tx.customer.findUnique({
+      customer = await tx.customer.findUnique({
         where: { id: checkoutDto.customerId },
       });
-      if (existing) {
-        return tx.customer.update({
-          where: { id: existing.id },
-          data: {
-            fullName: checkoutDto.customerName.trim(),
-            phone,
-            email: email || existing.email,
-          },
-        });
-      }
     }
 
-    const existing = await tx.customer.findFirst({
-      where: {
-        OR: [{ phone }, ...(email ? [{ email }] : [])],
-      },
-    });
-
-    if (existing) {
-      return tx.customer.update({
-        where: { id: existing.id },
-        data: {
-          fullName: checkoutDto.customerName.trim(),
-          phone,
-          email,
-        },
+    if (!customer) {
+      customer = await tx.customer.findUnique({
+        where: { phone },
       });
+    }
+
+    if (!customer && email) {
+      customer = await tx.customer.findUnique({
+        where: { email },
+      });
+    }
+
+    if (customer) {
+      return customer;
     }
 
     return tx.customer.create({

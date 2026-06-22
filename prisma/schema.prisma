@@ -1899,3 +1899,16 @@ model KeywordPlan {
 
   @@map("keyword_plans")
 }
+
+model CustomerPasswordReset {
+  id        String   @id @default(cuid())
+  email     String
+  otpCode   String
+  expiresAt DateTime
+  verified  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([email])
+  @@index([expiresAt])
+  @@map("customer_password_resets")
+}
