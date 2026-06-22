@@ -55,7 +55,13 @@ async function bootstrap() {
   });
 
   const port = Number(configService.get<string>('PORT') ?? 4000);
-  await app.listen(port, '0.0.0.0');
+  const server = await app.listen(port, '0.0.0.0');
+  if (server && 'setTimeout' in server) {
+    server.setTimeout(15 * 60 * 1000);
+  }
+  if (server && 'requestTimeout' in server) {
+    (server as any).requestTimeout = 15 * 60 * 1000;
+  }
 }
 bootstrap().catch((error) => {
   console.error(error);

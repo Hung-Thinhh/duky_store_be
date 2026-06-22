@@ -18,6 +18,7 @@ import { CreateRedirectDto } from './dto/create-redirect.dto';
 import { ListRedirectsQueryDto } from './dto/list-redirects-query.dto';
 import { SeoMetadataQueryDto } from './dto/seo-metadata-query.dto';
 import { UpdateRedirectDto } from './dto/update-redirect.dto';
+import { CreateKeywordPlanDto, UpdateKeywordPlanDto } from './dto/keyword-plan.dto';
 
 @Injectable()
 export class SeoService {
@@ -407,4 +408,184 @@ export class SeoService {
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&apos;');
   }
+
+  async listKeywordPlans() {
+    return this.prisma.keywordPlan.findMany({
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async createKeywordPlan(dto: CreateKeywordPlanDto) {
+    const existing = await this.prisma.keywordPlan.findUnique({
+      where: { keyword: dto.keyword.trim() },
+    });
+    if (existing) {
+      throw new ConflictException('Keyword already exists in plan');
+    }
+    return this.prisma.keywordPlan.create({
+      data: {
+        ...dto,
+        keyword: dto.keyword.trim(),
+      },
+    });
+  }
+
+  async updateKeywordPlan(id: string, dto: UpdateKeywordPlanDto) {
+    const existing = await this.prisma.keywordPlan.findUnique({
+      where: { id },
+    });
+    if (!existing) {
+      throw new NotFoundException('Keyword plan not found');
+    }
+
+    if (dto.keyword && dto.keyword.trim() !== existing.keyword) {
+      const duplicate = await this.prisma.keywordPlan.findUnique({
+        where: { keyword: dto.keyword.trim() },
+      });
+      if (duplicate) {
+        throw new ConflictException('Another plan with this keyword already exists');
+      }
+    }
+
+    return this.prisma.keywordPlan.update({
+      where: { id },
+      data: {
+        ...dto,
+        keyword: dto.keyword ? dto.keyword.trim() : undefined,
+      },
+    });
+  }
+
+  async deleteKeywordPlan(id: string) {
+    const existing = await this.prisma.keywordPlan.findUnique({
+      where: { id },
+    });
+    if (!existing) {
+      throw new NotFoundException('Keyword plan not found');
+    }
+    return this.prisma.keywordPlan.delete({
+      where: { id },
+    });
+  }
+
+  async listFocusKeywords() {
+    const metadata = await this.prisma.seoMetadata.findMany({
+      where: {
+        focusKeyword: {
+          not: null,
+        },
+      },
+      select: {
+        id: true,
+        entityType: true,
+        entityId: true,
+        focusKeyword: true,
+      },
+    });
+
+    const activeMetadata = metadata.filter(m => m.focusKeyword && m.focusKeyword.trim() !== '');
+
+    const productIds = activeMetadata
+      .filter(m => m.entityType === 'PRODUCT')
+      .map(m => m.entityId);
+    const postIds = activeMetadata
+      .filter(m => m.entityType === 'BLOG_POST')
+      .map(m => m.entityId);
+    const categoryIds = activeMetadata
+      .filter(m => m.entityType === 'CATEGORY')
+      .map(m => m.entityId);
+    const blogCategoryIds = activeMetadata
+      .filter(m => m.entityType === 'BLOG_CATEGORY')
+      .map(m => m.entityId);
+
+    const [products, posts, categories, blogCategories, campaignProducts] = await Promise.all([
+      productIds.length > 0
+        ? this.prisma.product.findMany({
+            where: { id: { in: productIds } },
+            select: { id: true, name: true, slug: true },
+          })
+        : Promise.resolve([] as any[]),
+      postIds.length > 0
+        ? this.prisma.blogPost.findMany({
+            where: { id: { in: postIds } },
+            select: { id: true, title: true, slug: true },
+          })
+        : Promise.resolve([] as any[]),
+      categoryIds.length > 0
+        ? this.prisma.category.findMany({
+            where: { id: { in: categoryIds } },
+            select: { id: true, name: true, slug: true },
+          })
+        : Promise.resolve([] as any[]),
+      blogCategoryIds.length > 0
+        ? this.prisma.blogCategory.findMany({
+            where: { id: { in: blogCategoryIds } },
+            select: { id: true, name: true, slug: true },
+          })
+        : Promise.resolve([] as any[]),
+      productIds.length > 0
+        ? this.prisma.campaignProduct.findMany({
+            where: { productId: { in: productIds } },
+            select: {
+              productId: true,
+              campaign: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+          })
+        : Promise.resolve([] as any[]),
+    ]);
+
+    const productMap = new Map<string, { id: string; name: string; slug: string }>(
+      products.map(p => [p.id, p] as const)
+    );
+    const postMap = new Map<string, { id: string; title: string; slug: string }>(
+      posts.map(p => [p.id, p] as const)
+    );
+    const categoryMap = new Map<string, { id: string; name: string; slug: string }>(
+      categories.map(c => [c.id, c] as const)
+    );
+    const blogCategoryMap = new Map<string, { id: string; name: string; slug: string }>(
+      blogCategories.map(bc => [bc.id, bc] as const)
+    );
+
+    const productCampaignMap = new Map<string, string>();
+    campaignProducts.forEach(cp => {
+      productCampaignMap.set(cp.productId, cp.campaign.name);
+    });
+
+    return activeMetadata.map(m => {
+      let name = '';
+      let slug = '';
+      if (m.entityType === 'PRODUCT') {
+        const p = productMap.get(m.entityId);
+        name = p?.name || 'Sản phẩm không tồn tại';
+        slug = p ? `/products/${p.slug}` : '';
+      } else if (m.entityType === 'BLOG_POST') {
+        const p = postMap.get(m.entityId);
+        name = p?.title || 'Bài viết không tồn tại';
+        slug = p ? `/blog/${p.slug}` : '';
+      } else if (m.entityType === 'CATEGORY') {
+        const c = categoryMap.get(m.entityId);
+        name = c?.name || 'Danh mục sản phẩm không tồn tại';
+        slug = c ? `/categories/${c.slug}` : '';
+      } else if (m.entityType === 'BLOG_CATEGORY') {
+        const bc = blogCategoryMap.get(m.entityId);
+        name = bc?.name || 'Danh mục tin tức không tồn tại';
+        slug = bc ? `/blog/category/${bc.slug}` : '';
+      }
+      return {
+        id: m.id,
+        entityType: m.entityType,
+        entityId: m.entityId,
+        keyword: m.focusKeyword!.trim(),
+        name,
+        slug,
+        campaign: m.entityType === 'PRODUCT' ? (productCampaignMap.get(m.entityId) || '') : '',
+      };
+    });
+  }
 }
+

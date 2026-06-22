@@ -64,7 +64,8 @@ type GscCandidateSource =
   | 'sitemap_entry'
   | 'static_route'
   | 'url_mapping_new'
-  | 'url_mapping_old';
+  | 'url_mapping_old'
+  | 'gsc_inspection';
 
 type GscCandidateUrl = {
   entityId?: string | null;
@@ -217,12 +218,16 @@ export class GscService {
         ),
       ],
       samples: {
-        productRedirectMissingTargets: productRedirectMissingTargets.slice(
-          0,
-          10,
+        productRedirectMissingTargets,
+        blogRedirectMissingTargets,
+        rootRedirects,
+        selfRedirects,
+        productsMissingMeta,
+        noIndexEntities,
+        relativeCanonicals: Array.from(baseline.entityByPath.values()).filter(
+          (entity) => entity.canonicalUrl?.startsWith('/'),
         ),
-        blogRedirectMissingTargets: blogRedirectMissingTargets.slice(0, 10),
-        rootRedirects: rootRedirects.slice(0, 5),
+        mediaMissingAltText: baseline.mediaMissingAltTextList,
       },
     };
   }
@@ -231,6 +236,17 @@ export class GscService {
     try {
       const baseline = await this.buildBaseline();
       const uniqueRows = this.uniqueRows(dto.urls);
+
+      if (uniqueRows.length > 0) {
+        const data = uniqueRows.map((row) => ({
+          inspectionUrl: this.toAbsoluteUrl(row.url),
+        }));
+        await this.prisma.gscInspection.createMany({
+          data,
+          skipDuplicates: true,
+        });
+      }
+
       const analyzed = uniqueRows.map((row) => this.analyzeUrl(row, baseline));
 
       return {
@@ -409,6 +425,15 @@ export class GscService {
         }
       }
 
+      for (const inspection of baseline.gscInspections.values()) {
+        addCandidate(
+          inspection.inspectionUrl,
+          'gsc_inspection',
+          'GSC Saved',
+          'URL từ file import hoặc lịch sử inspect.',
+        );
+      }
+
       const allUrls = Array.from(candidates.values()).sort((a, b) => {
         const rankDiff = this.rankCandidate(b) - this.rankCandidate(a);
 
@@ -486,6 +511,19 @@ export class GscService {
           type,
         },
       });
+
+      try {
+        await this.prisma.gscInspection.upsert({
+          where: { inspectionUrl: absoluteUrl },
+          update: { lastRequestedIndexingAt: new Date() },
+          create: {
+            inspectionUrl: absoluteUrl,
+            lastRequestedIndexingAt: new Date(),
+          },
+        });
+      } catch (dbErr) {
+        console.error(`Failed to record indexing request in DB for ${absoluteUrl}:`, dbErr);
+      }
 
       return {
         success: true,
@@ -627,7 +665,6 @@ export class GscService {
       redirects,
       urlMappings,
       seoMetadata,
-      relativeCanonicals,
       mediaMissingAltText,
       gscInspections,
     ] = await this.prisma.$transaction([
@@ -677,14 +714,12 @@ export class GscService {
           noIndex: true,
         },
       }),
-      this.prisma.seoMetadata.count({
-        where: { canonicalUrl: { startsWith: '/' } },
-      }),
-      this.prisma.media.count({
+      this.prisma.media.findMany({
         where: {
           deletedAt: null,
           OR: [{ altText: null }, { altText: '' }],
         },
+        select: { id: true, url: true, title: true },
       }),
       this.prisma.gscInspection.findMany({}),
     ]);
@@ -762,14 +797,18 @@ export class GscService {
       urlMappingByOldPath.set(mapping.oldUrl, mapping);
     }
 
+    const relativeCanonicalsCount = seoMetadata.filter(
+      (meta) => meta.canonicalUrl && meta.canonicalUrl.startsWith('/'),
+    ).length;
+
     return {
       counts: {
         activeCategories: categories.length,
         configuredSitemapEntries: sitemapEntries.length,
-        mediaMissingAltText,
+        mediaMissingAltText: mediaMissingAltText.length,
         publishedBlogPosts: blogPosts.length,
         publishedProducts: products.length,
-        relativeCanonicals,
+        relativeCanonicals: relativeCanonicalsCount,
       },
       entityByPath,
       redirects: redirects.map((redirect) => ({
@@ -783,6 +822,7 @@ export class GscService {
       gscInspections: new Map(
         gscInspections.map((item) => [item.inspectionUrl, item]),
       ),
+      mediaMissingAltTextList: mediaMissingAltText,
     };
   }
 
@@ -1102,6 +1142,7 @@ export class GscService {
       sitemap_entry: 50,
       live_sitemap: 45,
       static_route: 40,
+      gsc_inspection: 30,
     };
 
     return Math.max(...candidate.sources.map((source) => sourceRank[source]));

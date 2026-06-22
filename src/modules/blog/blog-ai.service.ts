@@ -71,9 +71,9 @@ export class BlogAiService {
       || 'ts/gemini-3.5-flash';
     const endpoint = `${baseUrl.replace(/\/+$/g, '')}/chat/completions`;
 
-    // 1. Timeout 300s (5 phút)
+    // 1. Timeout 900s (15 phút)
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 300000);
+    const timeoutId = setTimeout(() => controller.abort(), 900000);
 
     try {
       const response = await fetch(endpoint, {
@@ -129,8 +129,8 @@ export class BlogAiService {
       
       // Xử lý riêng lỗi do quá thời gian Timeout
       if (error.name === 'AbortError') {
-        this.logger.error('Blog AI request timed out sau 5 phút');
-        throw new BadGatewayException('Blog AI bị gián đoạn do phản hồi quá 5 phút');
+        this.logger.error('Blog AI request timed out sau 15 phút');
+        throw new BadGatewayException('Blog AI bị gián đoạn do phản hồi quá 15 phút');
       }
       throw error;
     }

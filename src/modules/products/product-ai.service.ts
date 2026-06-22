@@ -54,9 +54,9 @@ export class ProductAiService {
 
     const endpoint = `${baseUrl.replace(/\/+$/g, '')}/chat/completions`;
 
-    // Timeout 300s (5 phút)
+    // Timeout 900s (15 phút)
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 300000);
+    const timeoutId = setTimeout(() => controller.abort(), 900000);
 
     let userContent: any = userPrompt;
     if (images && images.length > 0) {
@@ -126,8 +126,8 @@ export class ProductAiService {
       clearTimeout(timeoutId);
       
       if (error.name === 'AbortError') {
-        this.logger.error('Product AI request timed out sau 5 phút');
-        throw new BadGatewayException('Product AI bị gián đoạn do phản hồi quá 5 phút');
+        this.logger.error('Product AI request timed out sau 15 phút');
+        throw new BadGatewayException('Product AI bị gián đoạn do phản hồi quá 15 phút');
       }
       throw error;
     }

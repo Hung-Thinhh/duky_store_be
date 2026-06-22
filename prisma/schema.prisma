@@ -1675,6 +1675,7 @@ model GscInspection {
   googleCanonical        String?
   userCanonical          String?
   lastCrawlTime          String?
+  lastRequestedIndexingAt DateTime?
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
 
@@ -1882,4 +1883,19 @@ model BackgroundJob {
   @@index([queueName, status])
   @@index([jobId])
   @@map("background_jobs")
+}
+
+model KeywordPlan {
+  id         String   @id @default(cuid())
+  keyword    String   @unique
+  cluster    String
+  intent     String
+  priority   String
+  status     String
+  owner      String
+  targetPath String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("keyword_plans")
 }
