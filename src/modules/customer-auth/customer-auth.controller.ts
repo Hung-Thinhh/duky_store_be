@@ -8,6 +8,9 @@ import { CustomerAuthService } from './customer-auth.service';
 import { CurrentCustomer } from './decorators/current-customer.decorator';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { VerifyOtpDto } from './dto/verify-otp.dto';
+import { ResetPasswordWithOtpDto } from './dto/reset-password-with-otp.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { CreateAddressDto } from './dto/create-address.dto';
@@ -169,6 +172,27 @@ export class CustomerAuthController {
     @Param('code') code: string,
   ) {
     return this.customerAuthService.getOrder(customer.id, code);
+  }
+
+  @Post('forgot-password')
+  @ApiOperation({ summary: 'Request a password reset OTP' })
+  @ApiBody({ type: ForgotPasswordDto })
+  forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.customerAuthService.forgotPassword(dto);
+  }
+
+  @Post('verify-otp')
+  @ApiOperation({ summary: 'Verify the password reset OTP' })
+  @ApiBody({ type: VerifyOtpDto })
+  verifyOtp(@Body() dto: VerifyOtpDto) {
+    return this.customerAuthService.verifyOtp(dto);
+  }
+
+  @Post('reset-password')
+  @ApiOperation({ summary: 'Reset customer password using verified OTP' })
+  @ApiBody({ type: ResetPasswordWithOtpDto })
+  resetPassword(@Body() dto: ResetPasswordWithOtpDto) {
+    return this.customerAuthService.resetPasswordWithOtp(dto);
   }
 
   private getRequestMeta(request: Request): RequestMeta {

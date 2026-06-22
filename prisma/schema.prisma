@@ -1883,3 +1883,17 @@ model BackgroundJob {
   @@index([jobId])
   @@map("background_jobs")
 }
+
+model CustomerPasswordReset {
+  id        String   @id @default(cuid())
+  email     String
+  otpCode   String
+  expiresAt DateTime
+  verified  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([email])
+  @@index([expiresAt])
+  @@map("customer_password_resets")
+}
+
