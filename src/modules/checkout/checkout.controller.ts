@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
+import { Request } from 'express';
 import { CheckoutService } from './checkout.service';
 import { CheckoutDto } from './dto/checkout.dto';
 import { OrderLookupQueryDto } from './dto/order-lookup-query.dto';
@@ -11,8 +12,12 @@ export class CheckoutController {
 
   @Post('checkout')
   @ApiOperation({ summary: 'Create order from active guest cart' })
-  checkout(@Body() checkoutDto: CheckoutDto) {
-    return this.checkoutService.checkout(checkoutDto);
+  checkout(@Body() checkoutDto: CheckoutDto, @Req() req: Request) {
+    const rawIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    const ip = Array.isArray(rawIp) ? rawIp[0] : (rawIp as string | undefined);
+    const userAgent = req.headers['user-agent'];
+
+    return this.checkoutService.checkout(checkoutDto, { ip, userAgent });
   }
 
   @Get('orders/:code')
