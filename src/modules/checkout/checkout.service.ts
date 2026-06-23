@@ -15,6 +15,7 @@ import {
 } from '../../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { FacebookCapiService } from '../facebook-capi/facebook-capi.service';
 import { CheckoutDto } from './dto/checkout.dto';
 
 @Injectable()
@@ -22,9 +23,13 @@ export class CheckoutService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationsService: NotificationsService,
+    private readonly facebookCapiService: FacebookCapiService,
   ) {}
 
-  async checkout(checkoutDto: CheckoutDto) {
+  async checkout(
+    checkoutDto: CheckoutDto,
+    clientData: { ip?: string; userAgent?: string } = {},
+  ) {
     const sessionId = checkoutDto.sessionId.trim();
 
     const order = await this.prisma.$transaction(async (tx) => {
@@ -291,6 +296,10 @@ export class CheckoutService {
 
     this.notificationsService.enqueueOrderCreated(order.id).catch((error) => {
       console.warn('Failed to queue order notifications', error);
+    });
+
+    this.facebookCapiService.sendPurchaseEvent(order, clientData).catch((error) => {
+      console.warn('Failed to send Facebook CAPI Purchase event', error);
     });
 
     return order;

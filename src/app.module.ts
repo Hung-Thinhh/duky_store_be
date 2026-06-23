@@ -24,6 +24,7 @@ import { SettingsModule } from './modules/settings/settings.module';
 import { TagsModule } from './modules/tags/tags.module';
 import { UsersModule } from './modules/users/users.module';
 import { ChatbotModule } from './modules/chatbot/chatbot.module';
+import { FacebookCapiModule } from './modules/facebook-capi/facebook-capi.module';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { ChatbotModule } from './modules/chatbot/chatbot.module';
     ProductVariantsModule,
     InventoryModule,
     ChatbotModule,
+    FacebookCapiModule,
   ],
   controllers: [AppController],
   providers: [AppService],
