@@ -1,6 +1,6 @@
 const { Client } = require('pg');
 
-const DATABASE_URL = 'postgresql://postgres:qgdgy2aeqtindnmd@149.56.44.22:5403/intem-cantho?sslmode=disable';
+const DATABASE_URL = process.env.INTEM_DATABASE_URL || 'postgresql://postgres:password@localhost:5432/intem-cantho?sslmode=disable';
 
 async function test() {
   console.log('Testing GSC Service inputs and DB connection...');

@@ -77,7 +77,7 @@ export class ProductVariantsService {
         colorName: this.nullableTrim(createDto.colorName),
         colorHex: this.nullableTrim(createDto.colorHex),
         price: createDto.price ?? null,
-        salePrice: createDto.salePrice ?? null,
+        salePrice: (createDto.salePrice !== undefined && createDto.salePrice !== null && createDto.salePrice > 0) ? createDto.salePrice : null,
         isActive: createDto.isActive ?? true,
         sortOrder: createDto.sortOrder ?? 0,
         inventory: {
@@ -268,7 +268,7 @@ export class ProductVariantsService {
     }
 
     if (updateDto.salePrice !== undefined) {
-      data.salePrice = updateDto.salePrice ?? null;
+      data.salePrice = (updateDto.salePrice !== undefined && updateDto.salePrice !== null && updateDto.salePrice > 0) ? updateDto.salePrice : null;
     }
 
     if (updateDto.isActive !== undefined) {

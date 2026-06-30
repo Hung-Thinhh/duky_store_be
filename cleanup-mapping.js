@@ -2,7 +2,7 @@ const { Pool } = require('pg');
 const { PrismaPg } = require('@prisma/adapter-pg');
 const { PrismaClient } = require('./dist/generated/prisma/client');
 
-const connectionString = "postgresql://postgres:mzfnoyxufjxro8me@149.56.44.22:5401/duky-store?sslmode=disable";
+const connectionString = process.env.DATABASE_URL || "postgresql://postgres:password@localhost:5432/duky-store?sslmode=disable";
 const pool = new Pool({ connectionString });
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });

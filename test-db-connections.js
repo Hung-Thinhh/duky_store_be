@@ -1,7 +1,7 @@
 const { Client } = require('pg');
 
-const INTEM_DB = 'postgresql://postgres:qgdgy2aeqtindnmd@149.56.44.22:5403/intem-cantho?sslmode=disable';
-const DUKY_DB = 'postgresql://postgres:mzfnoyxufjxro8me@149.56.44.22:5401/duky-store?sslmode=disable';
+const INTEM_DB = process.env.INTEM_DATABASE_URL || 'postgresql://postgres:password@localhost:5432/intem-cantho?sslmode=disable';
+const DUKY_DB = process.env.DATABASE_URL || 'postgresql://postgres:password@localhost:5432/duky-store?sslmode=disable';
 
 async function testDatabase(dbUrl, label) {
   console.log(`\n=================== TESTING ${label} DATABASE ===================`);

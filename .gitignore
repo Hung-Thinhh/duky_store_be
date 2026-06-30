@@ -65,3 +65,11 @@ duky-ai-*.json
 *gserviceaccount*.json
 docs/seo/gsc-exports/
 docs/seo/gsc-results/
+
+# Local scratch/test scripts
+cleanup-mapping.js
+find-blog.js
+test-db-connections.js
+test-db.js
+test-intem-gsc.js
+

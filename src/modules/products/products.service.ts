@@ -694,7 +694,7 @@ export class ProductsService {
           catalogVisibility:
             createDto.catalogVisibility ?? ProductCatalogVisibility.VISIBLE,
           originalPrice: createDto.originalPrice,
-          salePrice: createDto.salePrice ?? null,
+          salePrice: (createDto.salePrice !== undefined && createDto.salePrice !== null && createDto.salePrice > 0) ? createDto.salePrice : null,
           contactForPrice: createDto.contactForPrice ?? false,
           shortDescription: this.nullableTrim(createDto.shortDescription),
           description: this.nullableTrim(createDto.description),
@@ -1665,7 +1665,7 @@ export class ProductsService {
     }
 
     if (updateDto.salePrice !== undefined) {
-      data.salePrice = updateDto.salePrice ?? null;
+      data.salePrice = (updateDto.salePrice !== undefined && updateDto.salePrice !== null && updateDto.salePrice > 0) ? updateDto.salePrice : null;
     }
 
     if (updateDto.contactForPrice !== undefined) {
