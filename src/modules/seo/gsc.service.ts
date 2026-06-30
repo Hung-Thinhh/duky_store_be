@@ -460,15 +460,13 @@ export class GscService {
       };
     } catch (error: any) {
       console.error('=== GSC GET CANDIDATES ERROR ===', error);
-      try {
-        const fs = require('fs');
-        const pathLib = require('path');
-        const logFile = pathLib.join('c:/Users/HT90/Desktop/ht90/job/Duky/Duky boot/Backend-Dukyboot', 'gsc-error.log');
-        fs.writeFileSync(logFile, `${new Date().toISOString()}\n[getCandidates]\n${error?.stack || error}\n\n`);
-      } catch (err) {
-        console.error('Failed to write log file', err);
-      }
-      throw error;
+      throw new BadRequestException({
+        message: 'GSC GET CANDIDATES ERROR',
+        details: {
+          error: error.message || error,
+          stack: error.stack,
+        },
+      });
     }
   }
 
@@ -551,7 +549,7 @@ export class GscService {
       );
     }
 
-    const rows = this.uniqueRows(dto.urls).slice(0, 50);
+    const rows = this.uniqueRows(dto.urls).slice(0, 10);
     const authOptions: ConstructorParameters<typeof google.auth.GoogleAuth>[0] =
       {
         scopes: ['https://www.googleapis.com/auth/webmasters.readonly'],
@@ -576,76 +574,89 @@ export class GscService {
     const delayMs =
       dto.delayMs ??
       Number(this.configService.get('GSC_INSPECTION_DELAY_MS') ?? 1200);
-    const results: Array<Record<string, unknown>> = [];
+    const results: Array<Record<string, unknown>> = new Array(rows.length);
 
-    for (const [index, row] of rows.entries()) {
-      const inspectionUrl = this.toAbsoluteUrl(row.url);
+    const concurrency = 5;
+    let currentIndex = 0;
 
-      try {
-        const response = await searchconsole.urlInspection.index.inspect({
-          requestBody: {
-            inspectionUrl,
-            languageCode,
-            siteUrl,
-          },
-        });
-        const result = response.data.inspectionResult ?? {};
-        const indexStatus = result.indexStatusResult ?? {};
-        const mobileUsability = result.mobileUsabilityResult ?? {};
-        const richResults = result.richResultsResult ?? {};
-
-        const inspectData = {
-          coverageState: indexStatus.coverageState ?? null,
-          googleCanonical: indexStatus.googleCanonical ?? null,
-          indexingState: indexStatus.indexingState ?? null,
-          lastCrawlTime: indexStatus.lastCrawlTime ? String(indexStatus.lastCrawlTime) : null,
-          mobileUsabilityVerdict: mobileUsability.verdict ?? null,
-          pageFetchState: indexStatus.pageFetchState ?? null,
-          richResultsVerdict: richResults.verdict ?? null,
-          robotsTxtState: indexStatus.robotsTxtState ?? null,
-          userCanonical: indexStatus.userCanonical ?? null,
-          verdict: indexStatus.verdict ?? null,
-        };
+    const worker = async () => {
+      while (currentIndex < rows.length) {
+        const index = currentIndex++;
+        const row = rows[index];
+        const inspectionUrl = this.toAbsoluteUrl(row.url);
 
         try {
-          await this.prisma.gscInspection.upsert({
-            where: { inspectionUrl },
-            update: inspectData,
-            create: {
+          const response = await searchconsole.urlInspection.index.inspect({
+            requestBody: {
               inspectionUrl,
-              ...inspectData,
+              languageCode,
+              siteUrl,
             },
           });
-        } catch (dbErr) {
-          console.error(`Failed to upsert GSC inspection to DB for ${inspectionUrl}:`, dbErr);
+          const result = response.data.inspectionResult ?? {};
+          const indexStatus = result.indexStatusResult ?? {};
+          const mobileUsability = result.mobileUsabilityResult ?? {};
+          const richResults = result.richResultsResult ?? {};
+
+          const inspectData = {
+            coverageState: indexStatus.coverageState ?? null,
+            googleCanonical: indexStatus.googleCanonical ?? null,
+            indexingState: indexStatus.indexingState ?? null,
+            lastCrawlTime: indexStatus.lastCrawlTime ? String(indexStatus.lastCrawlTime) : null,
+            mobileUsabilityVerdict: mobileUsability.verdict ?? null,
+            pageFetchState: indexStatus.pageFetchState ?? null,
+            richResultsVerdict: richResults.verdict ?? null,
+            robotsTxtState: indexStatus.robotsTxtState ?? null,
+            userCanonical: indexStatus.userCanonical ?? null,
+            verdict: indexStatus.verdict ?? null,
+          };
+
+          try {
+            await this.prisma.gscInspection.upsert({
+              where: { inspectionUrl },
+              update: inspectData,
+              create: {
+                inspectionUrl,
+                ...inspectData,
+              },
+            });
+          } catch (dbErr) {
+            console.error(`Failed to upsert GSC inspection to DB for ${inspectionUrl}:`, dbErr);
+          }
+
+          results[index] = {
+            ...inspectData,
+            inspectionUrl,
+            referringUrls: indexStatus.referringUrls,
+            sitemap: indexStatus.sitemap,
+          };
+        } catch (error) {
+          const apiError = error as {
+            code?: number;
+            message?: string;
+            response?: { status?: number; statusText?: string };
+          };
+
+          results[index] = {
+            errorCode: apiError.code,
+            errorMessage: apiError.message ?? 'Unknown Google API error',
+            errorStatus: apiError.response?.statusText,
+            errorStatusCode: apiError.response?.status,
+            inspectionUrl,
+          };
         }
 
-        results.push({
-          ...inspectData,
-          inspectionUrl,
-          referringUrls: indexStatus.referringUrls,
-          sitemap: indexStatus.sitemap,
-        });
-      } catch (error) {
-        const apiError = error as {
-          code?: number;
-          message?: string;
-          response?: { status?: number; statusText?: string };
-        };
-
-        results.push({
-          errorCode: apiError.code,
-          errorMessage: apiError.message ?? 'Unknown Google API error',
-          errorStatus: apiError.response?.statusText,
-          errorStatusCode: apiError.response?.status,
-          inspectionUrl,
-        });
+        if (delayMs > 0 && currentIndex < rows.length) {
+          await sleep(Math.floor(delayMs / concurrency));
+        }
       }
+    };
 
-      if (index < rows.length - 1 && delayMs > 0) {
-        await sleep(delayMs);
-      }
-    }
+    const workers = Array.from(
+      { length: Math.min(concurrency, rows.length) },
+      () => worker(),
+    );
+    await Promise.all(workers);
 
     return {
       generatedAt: new Date().toISOString(),
@@ -667,7 +678,7 @@ export class GscService {
       seoMetadata,
       mediaMissingAltText,
       gscInspections,
-    ] = await this.prisma.$transaction([
+    ] = await Promise.all([
       this.prisma.product.findMany({
         where: { deletedAt: null, status: ProductStatus.PUBLISHED },
         select: { id: true, name: true, slug: true },
